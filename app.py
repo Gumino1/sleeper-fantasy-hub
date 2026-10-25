@@ -109,24 +109,28 @@ else:
             
             has_no_projection = (pts_proj is None or float(pts_proj) <= 0.0)
 
-            if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
-                owner_team = player_to_owner.get(pid, "Volný hráč (FA)")
-                
-                if injury == 'IR':
-                    ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else "Očekávaný návrat brzy"
-                elif injury == 'Out':
-                    ir_note = "Mimo sestavu pro tento týden (Out)"
-                else:
-                    ir_note = "Hlášené zranění (Questionable/Doubtful)"
+            # Sběr marodky ligy: Pouze pokud má hráč reálný NFL tým (ne FA/None) a je zraněný
+            if nfl_t is not None and nfl_t != 'FA':
+                if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
+                    owner_team = player_to_owner.get(pid)
+                    
+                    # Zahrneme pouze hráče, kteří reálně patří nějakému týmu v naší lize
+                    if owner_team:
+                        if injury == 'IR':
+                            ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else "Očekávaný návrat brzy"
+                        elif injury == 'Out':
+                            ir_note = "Mimo sestavu pro tento týden (Out)"
+                        else:
+                            ir_note = "Hlášené zranění (Questionable/Doubtful)"
 
-                league_injuries_list.append({
-                    "Jméno": pname,
-                    "Pozice": pos,
-                    "NFL Tým": nfl_t if nfl_t else "FA",
-                    "Fantasy Tým v lize": owner_team,
-                    "Status": injury,
-                    "Odhad návratu / Poznámka": ir_note
-                })
+                        league_injuries_list.append({
+                            "Jméno": pname,
+                            "Pozice": pos,
+                            "NFL Tým": nfl_t,
+                            "Fantasy Tým v lize": owner_team,
+                            "Status": injury,
+                            "Odhad návratu / Poznámka": ir_note
+                        })
 
             if has_no_projection:
                 continue
@@ -221,11 +225,11 @@ else:
             st.info("Žádní volní hráči s platnou projekcí pro zvolenou pozici v tomto týdnu.")
 
     with tab4:
-        st.subheader("🚨 Marodka ligy & IR Alerty (Přehled zraněných hráčů napříč týmy)")
+        st.subheader("🚨 Marodka ligy & IR Alerty (Přehled zraněných hráčů na soupiskách)")
         if not df_injuries.empty:
             st.dataframe(df_injuries, use_container_width=True, hide_index=True, height=500)
         else:
-            st.info("V tuto chvíli nejsou v lize registrováni žádní zranění hráči s hlášeným IR/Out stavem.")
+            st.info("V tuto chvíli nejsou na soupiskách týmů v lize registrováni žádní zranění hráči s hlášeným IR/Out stavem.")
 
     with tab5:
         st.subheader("📈 Playoff SOS (Week 15–17)")
