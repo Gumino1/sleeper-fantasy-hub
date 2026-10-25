@@ -36,7 +36,6 @@ def fetch_sleeper_data(lid, week):
         players_res = requests.get(f"https://api.sleeper.app/v1/players/nfl")
         trades_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/transactions/{week}")
         
-        # Bezpečné načtení schedule a matchups (pokud selžou, vrátí prázdno místo pádu)
         sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         
@@ -55,7 +54,6 @@ def fetch_sleeper_data(lid, week):
 with st.spinner("Stahuji data ze Sleeper API..."):
     league_info, rosters, users, all_players, transactions, schedule, matchups = fetch_sleeper_data(league_id, selected_week)
 
-# Debug výpis pro kontrolu, co se stáhlo
 if not rosters:
     st.error(f"⚠️ Nepodařilo se stáhnout soupisky (rosters) pro ID: `{league_id}`. Zkontroluj, zda je ID správné a liga existuje.")
 elif not all_players:
@@ -164,7 +162,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
