@@ -1,0 +1,5 @@
+Plaintext
+streamlit
+requests
+pandas
+nfl_data_py
