@@ -38,7 +38,6 @@ def fetch_sleeper_data(lid, week):
         
         sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
-        
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
         
         league_data = league_res.json() if league_res.status_code == 200 else {}
@@ -115,7 +114,7 @@ else:
                     "Pozice": pos, 
                     "Tým": nfl_t, 
                     "Stav": injury if injury else "Zdravý",
-                    "Proj. Body": round(float(pts_proj), 2)  # Zaokrouhleno na 2 desetinná místa
+                    "Proj. Body": f"{float(pts_proj):.2f}"
                 }
                 all_active_players_dict[pid] = player_dict
                 
@@ -151,10 +150,10 @@ else:
             
             team_standings.append({
                 "Tým": t_name, "Výhry": wins, "Prohry": losses,
-                "PF (Celkem)": round(total_pf, 2), 
-                "PF / Zápas": round(total_pf / total_games, 2),
-                "PA (Celkem)": round(total_pa, 2), 
-                "PA / Zápas": round(total_pa / total_games, 2),
+                "PF (Celkem)": f"{total_pf:.2f}", 
+                "PF / Zápas": f"{total_pf / total_games:.2f}",
+                "PA (Celkem)": f"{total_pa:.2f}", 
+                "PA / Zápas": f"{total_pa / total_games:.2f}",
                 "Waiver Priority": settings.get('waiver_position', 0)
             })
         st.dataframe(pd.DataFrame(team_standings).sort_values(by=["Výhry", "PF (Celkem)"], ascending=[False, False]), use_container_width=True, hide_index=True, height=480)
@@ -177,7 +176,7 @@ else:
                 {"week": 5, "opp": "NO", "partner_active": True, "pts": 18.78, "tgt_share": "31.0 %"},
             ]
             split_rows = [
-                {"Týden": f"Week {sw['week']}", "Protihráč": sw["opp"], "Target Share": sw["tgt_share"], "Fantasy Body (PPR)": round(sw["pts"], 2)}
+                {"Týden": f"Week {sw['week']}", "Protihráč": sw["opp"], "Target Share": sw["tgt_share"], "Fantasy Body (PPR)": f"{sw['pts']:.2f}"}
                 for sw in sample_weeks if sw["partner_active"] == (partner_status == "ANO")
             ]
             if split_rows:
