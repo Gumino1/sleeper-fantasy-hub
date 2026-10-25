@@ -88,7 +88,6 @@ else:
     user_map = {u.get('user_id'): u.get('metadata', {}).get('team_name') or u.get('display_name', 'Neznámý') for u in users}
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
     
-    # Mapování matchupů pro získání starters daného týmu v daném týdnu
     roster_starters_map = {}
     if matchups and isinstance(matchups, list):
         for m in matchups:
@@ -293,36 +292,41 @@ else:
         team_players_rows = []
         for pid in all_team_pids:
             p_info = all_active_players_dict.get(pid)
-            if p_info:
-                is_starter = pid in starters_set
-                slot_type = "Starters (Základní sestava)" if is_starter else "Bench / IR (Lavička / Rezerva)"
-                team_players_rows.append({
-                    "Role v týmu": slot_type,
-                    "Jméno": p_info["Jméno"],
-                    "Pozice": p_info["Pozice"],
-                    "NFL Tým": p_info["Tým"],
-                    "Stav": p_info["Stav"],
-                    "Proj. Body": p_info["Proj. Body"]
-                })
-            else:
-                # Pokud hráč není v aktivním dictu, zkusíme ho vytáhnout alespoň základně
-                raw_p = all_players.get(pid, {})
-                if isinstance(raw_p, dict):
-                    pname = f"{raw_p.get('first_name', '')} {raw_p.get('last_name', '')}".strip()
-                    if not pname: pname = raw_p.get('full_name', 'Neznámý')
-                    is_starter = pid in starters_set
-                    team_players_rows.append({
-                        "Role v týmu": "Starters (Základní sestava)" if is_starter else "Bench / IR (Lavička / Rezerva)",
-                        "Jméno": pname,
-                        "Pozice": raw_p.get('position', 'FA'),
-                        "NFL Tým": raw_p.get('team', 'FA'),
-                        "Stav": raw_p.get('injury_status', 'Zdravý'),
-                        "Proj. Body": "0.00"
-                    })
+            raw_p = all_players.get(pid, {}) if not p_info else {}
+            
+            pname = p_info["Jméno"] if p_info else (f"{raw_p.get('first_name', '')} {raw_p.get('last_name', '')}".strip() or raw_p.get('full_name', 'Neznámý'))
+            pos = p_info["Pozice"] if p_info else raw_p.get('position', 'FA')
+            nfl_t = p_info["Tým"] if p_info else raw_p.get('team', 'FA')
+            injury = p_info["Stav"] if p_info else raw_p.get('injury_status', 'Zdravý')
+            pts = p_info["Proj. Body"] if p_info else "0.00"
+            
+            is_starter = pid in starters_set
+            
+            # Protihráč týmu (zkratka)
+            opp = team_opponents.get(nfl_t, "BYE") if nfl_t and nfl_t != 'FA' else "BYE"
+            
+            # Priorita řazení podle pozic jako ve Sleeperu (QB -> RB -> WR -> TE -> K -> DEF)
+            pos_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'DEF': 6}.get(pos, 7)
+            starter_order = 0 if is_starter else 10
+            
+            team_players_rows.append({
+                "starter_sort": starter_order,
+                "pos_sort": pos_order,
+                "Roli": "Starters" if is_starter else "Bench / IR",
+                "Jméno": pname,
+                "Pozice": pos,
+                "NFL Tým": nfl_t,
+                "Protihráč": opp,
+                "FPA (Bodů od soupeře)": "14.50", # Placeholder pro FPA metriku pozice
+                "Stav": injury,
+                "Proj. Body": pts
+            })
                     
         df_team_roster = pd.DataFrame(team_players_rows)
         if not df_team_roster.empty:
-            st.dataframe(df_team_roster.sort_values(by=["Role v týmu", "Proj. Body"], ascending=[True, False]), use_container_width=True, hide_index=True, height=500)
+            # Seřazení: Nejdříve Starters podle pozic QB, RB, WR, TE, K, DEF, pak Bench
+            df_sorted = df_team_roster.sort_values(by=["starter_sort", "pos_sort"], ascending=[True, True]).drop(columns=["starter_sort", "pos_sort"])
+            st.dataframe(df_sorted, use_container_width=True, hide_index=True, height=650)
         else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
