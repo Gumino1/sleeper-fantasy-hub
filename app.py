@@ -79,23 +79,12 @@ else:
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
     
     roster_starters_map = {}
-    matchup_group_map = {} # Pro párování ligových soupeřů
     if matchups and isinstance(matchups, list):
-        # Seskupení podle match_id pro zjištění, proti jakému fantasy týmu daný tým hraje
-        match_groups = {}
         for m in matchups:
             rid = m.get('roster_id')
-            m_id = m.get('match_id')
             starters = m.get('starters', [])
             if rid:
                 roster_starters_map[rid] = set(starters)
-            if m_id is not None:
-                match_groups.setdefault(m_id, []).append(rid)
-        
-        for m_id, rids in match_groups.items():
-            if len(rids) == 2:
-                matchup_group_map[rids[0]] = roster_to_name.get(rids[1], "Soupeř")
-                matchup_group_map[rids[1]] = roster_to_name.get(rids[0], "Soupeř")
 
     all_active_players_dict = {}
     fa_list, league_injuries_list, fa_stash_list, rostered_ids = [], [], [], set()
@@ -272,7 +261,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -302,12 +291,6 @@ else:
             pts = p_info["Proj. Body"] if p_info else "0.00"
             
             is_starter = pid in starters_set
-            
-            # Bezpečné zjištění soupeře (reálný NFL protivník daného týmu ze Sleeper databáze hráčů / metadata)
-            opp_team = "Hra"
-            if nfl_t and nfl_t != 'FA':
-                # Ověření podle reálného týmu v NFL pro daný týden
-                opp_team = f"vs Soupeř" # Dynamický placeholder podle aktuálního NFL týdne
             
             pos_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'DEF': 6}.get(pos, 7)
             starter_order = 0 if is_starter else 10
