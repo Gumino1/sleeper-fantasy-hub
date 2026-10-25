@@ -139,7 +139,7 @@ else:
                 "PA (Celkem)": total_pa, "PA / Zápas": round(total_pa / total_games, 2),
                 "Waiver Priority": settings.get('waiver_position', 0)
             })
-        st.dataframe(pd.DataFrame(team_standings).sort_values(by=["Výhry", "PF (Celkem)"], ascending=[False, False]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(team_standings).sort_values(by=["Výhry", "PF (Celkem)"], ascending=[False, False]), use_container_width=True, hide_index=True, height=480)
 
     with tab2:
         st.subheader("🔬 Spoluhráčský Split Analyzer")
