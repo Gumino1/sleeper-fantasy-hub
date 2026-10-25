@@ -109,13 +109,11 @@ else:
             
             has_no_projection = (pts_proj is None or float(pts_proj) <= 0.0)
 
-            # Sběr marodky ligy s chytřejším odhadem návratu
             if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
                 owner_team = player_to_owner.get(pid, "Volný hráč (FA)")
                 
                 if injury == 'IR':
-                    # Dynamický odhad: pokud nemá projekce do konce sezóny, jde o konec sezóny
-                    ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else f"Očekávaný návrat brzy"
+                    ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else "Očekávaný návrat brzy"
                 elif injury == 'Out':
                     ir_note = "Mimo sestavu pro tento týden (Out)"
                 else:
@@ -235,7 +233,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
