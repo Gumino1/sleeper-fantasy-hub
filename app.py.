@@ -3,17 +3,14 @@ import requests
 import pandas as pd
 import nfl_data_py as nfl
 
-# Nastavení stránky
 st.set_page_config(page_title="Sleeper Fantasy Ultimate Hub", page_icon="🏈", layout="wide")
 
 st.title("🏈 Sleeper Fantasy Ultimate Dashboard & Pro Analytics")
 st.markdown("NFL Redraft PPR | Reálná NFL data & Snap Share via nfl_data_py, Starters/Bench, Per-Game PF/PA & Spoluhráčský Split Analyzer")
 
-# --- NAČTENÍ REÁLNÝCH NFL STATISTIK (Cache na 6 hodin kvůli rychlosti) ---
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_nfl_weekly_data():
     try:
-        # Stáhne týdenní data pro aktuální sezónu 2026 (případně fallback)
         df_weekly = nfl.import_weekly_data([2026])
         return df_weekly
     except Exception:
@@ -22,7 +19,6 @@ def load_nfl_weekly_data():
 with st.spinner("Načítám reálné NFL statistiky a snap share..."):
     df_nfl_stats = load_nfl_weekly_data()
 
-# --- POSTRANNÍ PANEL ---
 st.sidebar.header("⚙️ Nastavení ligy")
 default_league_id = "1388577055834132480"
 league_id = st.sidebar.text_input("Zadej Sleeper League ID:", value=default_league_id)
@@ -32,17 +28,16 @@ st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Aktualizovat data", type="primary"):
     st.cache_data.clear()
 
-# --- SLEEPER API DATA ---
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_sleeper_data(lid, week):
     try:
-        league_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}")
-        rosters_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/rosters")
-        users_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/users")
-        players_res = requests.get(f"https://api.sleeper.app/v1/players/nfl")
-        trades_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/transactions/{week}")
-        nfl_schedule_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
-        matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
+        league_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}")
+        rosters_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/rosters")
+        users_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/users")
+        players_res = requests.get(f"[https://api.sleeper.app/v1/players/nfl](https://api.sleeper.app/v1/players/nfl)")
+        trades_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/transactions/{week}")
+        nfl_schedule_res = requests.get(f"[https://api.sleeper.app/v1/schedule/nfl/regular/2026/](https://api.sleeper.app/v1/schedule/nfl/regular/2026/){week}")
+        matchups_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/matchups/{week}")
         
         return (
             league_res.json() if league_res.status_code == 200 else {},
@@ -77,7 +72,6 @@ else:
     
     roster_starters_map = {m.get('roster_id'): m.get('starters', []) for m in matchups} if matchups else {}
 
-    # Zpracování hráčů
     all_active_players_dict = {}
     fa_list, injury_stash_list, rostered_ids = [], [], set()
 
@@ -104,7 +98,6 @@ else:
 
     df_fa = pd.DataFrame(fa_list)
 
-    # --- ZÁLOŽKY ---
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🏆 Ligová tabulka & Per-Game",
         "🔬 Spoluhráčský Split (Without X)",
@@ -137,18 +130,16 @@ else:
         st.dataframe(pd.DataFrame(team_standings).sort_values(by=["Výhry", "PF (Celkem)"], ascending=[False, False]), use_container_width=True, hide_index=True)
 
     with tab2:
-        st.subheader("🔬 Spoluhráčský Split Analyzer (Analýza výkonu bez spoluhráče)")
-        st.markdown("Zadej hráče zájmu a podmínkového spoluhráče. Zvol ANO/NE, zda byl spoluhráč na hřišti, a porovnej statistiky.")
-        
+        st.subheader("🔬 Spoluhráčský Split Analyzer")
+        st.markdown("Zadej hráče zájmu a podmínkového spoluhráče. Zvol ANO/NE, zda byl spoluhráč na hřišti.")
         player_names_list = sorted([p['Jméno'] for p in all_active_players_dict.values()])
         c_col1, c_col2, c_col3 = st.columns(3)
-        with c_col1: p_main = st.selectbox("Hráč zájmu:", player_names_list, index=0)
-        with c_col2: p_partner = st.selectbox("Podmínkový spoluhráč:", player_names_list, index=1)
+        with c_col1: p_main = st.selectbox("Hráč zájmu:", player_names_list, index=0 if player_names_list else 0)
+        with c_col2: p_partner = st.selectbox("Podmínkový spoluhráč:", player_names_list, index=1 if len(player_names_list) > 1 else 0)
         with c_col3: partner_status = st.radio("Spoluhráč byl na hřišti?", ["ANO", "NE"])
         
         if st.button("🔍 Spustit Split Analýzu", type="primary"):
-            st.success(fVýsledek analýzy pro **{p_main}** v zápasech, kdy spoluhráč **{p_partner}** na hřišti byl: **{partner_status}**:")
-            # Ukázkový modelový výstup na základě reálných trendů
+            st.success(f"Výsledek analýzy pro **{p_main}** v zápasech, kdy spoluhráč **{p_partner}** na hřišti byl: **{partner_status}**:")
             mock_split_df = pd.DataFrame([
                 {"Týden": "Week 2", "Protihráč": "CHI", "Target Share": "31.2 %", "Fantasy Body (PPR)": 21.4},
                 {"Týden": "Week 4", "Protihráč": "GB", "Target Share": "35.0 %", "Fantasy Body (PPR)": 26.8},
@@ -175,10 +166,9 @@ else:
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
-        st.subheader(f"👥 Soupisky týmů & Pozicové metriky (Week {selected_week})")
-        team_options = {roster_to_name.get(r.get('roster_id'), f"Tým {i+1} পরিশোধ"): r for i, r in enumerate(rosters)}
+        st.subheader(f"👥 Soupisky týmů & Pozicové Stats (Week {selected_week})")
+        team_options = {roster_to_name.get(r.get('roster_id'), f"Tým {i+1}"): r for i, r in enumerate(rosters)}
         selected_team_name = st.selectbox("Vyber tým:", list(team_options.keys()))
-        
         sel_roster = team_options[selected_team_name]
         st.write(f"Celkem hráčů na soupisce: {len(sel_roster.get('players', []))}")
 
