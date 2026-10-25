@@ -36,7 +36,6 @@ def fetch_sleeper_data(lid, week):
         players_res = requests.get(f"https://api.sleeper.app/v1/players/nfl")
         trades_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/transactions/{week}")
         
-        # Sleeper NFL schedule endpoint pro daný týden
         sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
@@ -78,15 +77,21 @@ elif not all_players:
 else:
     st.sidebar.success("✅ Data úspěšně nahrána!")
 
-    # Robustní mapování soupeřů pro daný týden z NFL rozvrhu
+    # Spolehlivé sestavení zápasů pro daný týden ze schedule endpointu Sleeperu
     team_opponents = {}
     if schedule and isinstance(schedule, list):
         for game in schedule:
-            home = game.get('home_team') or game.get('home')
-            away = game.get('away_team') or game.get('away')
-            if home and away:
-                team_opponents[home] = f"vs {away}"
-                team_opponents[away] = f"@ {home}"
+            # Sleeper schedule vrací pole 'teams' nebo 'home'/'away'
+            tms = game.get('teams', [])
+            if len(tms) == 2:
+                team_opponents[tms[0]] = f"vs {tms[1]}"
+                team_opponents[tms[1]] = f"@ {tms[0]}"
+            else:
+                home = game.get('home')
+                away = game.get('away')
+                if home and away:
+                    team_opponents[home] = f"vs {away}"
+                    team_opponents[away] = f"@ {home}"
 
     user_map = {u.get('user_id'): u.get('metadata', {}).get('team_name') or u.get('display_name', 'Neznámý') for u in users}
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
@@ -305,7 +310,7 @@ else:
             
             is_starter = pid in starters_set
             
-            # Správný zápas / soupeř z rozvrhu (např. "vs MIN" nebo "@ GB" nebo "BYE")
+            # Bezpečné získání soupeře pro daný NFL tým z rozvrhu
             opp = team_opponents.get(nfl_t, "BYE") if nfl_t and nfl_t != 'FA' else "BYE"
             
             pos_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'DEF': 6}.get(pos, 7)
