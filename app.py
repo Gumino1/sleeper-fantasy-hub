@@ -302,8 +302,6 @@ else:
                 "Jméno": pname,
                 "Pozice": pos,
                 "NFL Tým": nfl_t,
-                "Protihráč": nfl_t if nfl_t else "BYE",
-                "FPA (Bodů od soupeře)": "14.50",
                 "Stav": injury,
                 "Proj. Body": pts
             })
