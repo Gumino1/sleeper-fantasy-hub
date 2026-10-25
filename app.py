@@ -96,18 +96,23 @@ else:
             pos = p.get('position')
             pname = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
             if not pname: pname = p.get('full_name', 'Neznámý')
-            nfl_t = p.get('team', 'FA')
+            nfl_t = p.get('team')
             injury = p.get('injury_status')
             
-            player_dict = {"id": pid, "Jméno": pname, "Pozice": pos, "Tým": nfl_t, "Stav": injury if injury else "Zdravý"}
-            all_active_players_dict[pid] = player_dict
-            
-            if pid not in rostered_ids:
-                fa_list.append({**player_dict, "Proj. Body": 14.0})
-                if injury in ['IR', 'Out', 'Doubtful']:
-                    injury_stash_list.append({"Jméno": pname, "Pozice": pos, "Tým": nfl_t, "Status zranění": injury})
+            # Bereme pouze hráče, kteří mají reálný NFL tým (vyfiltrujeme neaktivní 'None' hráče)
+            if nfl_t is not None and nfl_t != 'FA':
+                player_dict = {"id": pid, "Jméno": pname, "Pozice": pos, "Tým": nfl_t, "Stav": injury if injury else "Zdravý"}
+                all_active_players_dict[pid] = player_dict
+                
+                if pid not in rostered_ids:
+                    # Dynamičtější projekce podle pozice namísto natvrdo dané čtrnáctky
+                    base_proj = 16.0 if pos == 'QB' else (12.0 if pos == 'RB' else (11.0 if pos == 'WR' else 8.0))
+                    fa_list.append({**player_dict, "Proj. Body": base_proj})
+                    
+                    if injury in ['IR', 'Out', 'Doubtful']:
+                        injury_stash_list.append({"Jméno": pname, "Pozice": pos, "Tým": nfl_t, "Status zranění": injury})
 
-    df_fa = pd.DataFrame(fa_list)
+    df_fa = pd.DataFrame(fa_list).sort_values(by="Proj. Body", ascending=False) if fa_list else pd.DataFrame()
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🏆 Ligová tabulka & Per-Game",
