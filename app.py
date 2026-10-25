@@ -115,7 +115,7 @@ else:
                     "Pozice": pos, 
                     "Tým": nfl_t, 
                     "Stav": injury if injury else "Zdravý",
-                    "Proj. Body": round(float(pts_proj), 1)
+                    "Proj. Body": round(float(pts_proj), 2)  # Zaokrouhleno na 2 desetinná místa
                 }
                 all_active_players_dict[pid] = player_dict
                 
@@ -151,8 +151,10 @@ else:
             
             team_standings.append({
                 "Tým": t_name, "Výhry": wins, "Prohry": losses,
-                "PF (Celkem)": total_pf, "PF / Zápas": round(total_pf / total_games, 2),
-                "PA (Celkem)": total_pa, "PA / Zápas": round(total_pa / total_games, 2),
+                "PF (Celkem)": round(total_pf, 2), 
+                "PF / Zápas": round(total_pf / total_games, 2),
+                "PA (Celkem)": round(total_pa, 2), 
+                "PA / Zápas": round(total_pa / total_games, 2),
                 "Waiver Priority": settings.get('waiver_position', 0)
             })
         st.dataframe(pd.DataFrame(team_standings).sort_values(by=["Výhry", "PF (Celkem)"], ascending=[False, False]), use_container_width=True, hide_index=True, height=480)
@@ -168,14 +170,14 @@ else:
         if st.button("🔍 Spustit Split Analýzu", type="primary"):
             st.success(f"Analýza pro **{p_main}** (když spoluhráč **{p_partner}** na hřišti byl: **{partner_status}**):")
             sample_weeks = [
-                {"week": 1, "opp": "GB", "partner_active": True, "pts": 31.2, "tgt_share": "33.0 %"},
-                {"week": 2, "opp": "CHI", "partner_active": False, "pts": 8.5, "tgt_share": "28.5 %"},
-                {"week": 3, "opp": "TB", "partner_active": True, "pts": 5.2, "tgt_share": "15.0 %"},
-                {"week": 4, "opp": "MIA", "partner_active": False, "pts": 0.0, "tgt_share": "0.0 %"},
-                {"week": 5, "opp": "NO", "partner_active": True, "pts": 18.8, "tgt_share": "31.0 %"},
+                {"week": 1, "opp": "GB", "partner_active": True, "pts": 31.22, "tgt_share": "33.0 %"},
+                {"week": 2, "opp": "CHI", "partner_active": False, "pts": 8.50, "tgt_share": "28.5 %"},
+                {"week": 3, "opp": "TB", "partner_active": True, "pts": 5.15, "tgt_share": "15.0 %"},
+                {"week": 4, "opp": "MIA", "partner_active": False, "pts": 0.00, "tgt_share": "0.0 %"},
+                {"week": 5, "opp": "NO", "partner_active": True, "pts": 18.78, "tgt_share": "31.0 %"},
             ]
             split_rows = [
-                {"Týden": f"Week {sw['week']}", "Protihráč": sw["opp"], "Target Share": sw["tgt_share"], "Fantasy Body (PPR)": sw["pts"]}
+                {"Týden": f"Week {sw['week']}", "Protihráč": sw["opp"], "Target Share": sw["tgt_share"], "Fantasy Body (PPR)": round(sw["pts"], 2)}
                 for sw in sample_weeks if sw["partner_active"] == (partner_status == "ANO")
             ]
             if split_rows:
