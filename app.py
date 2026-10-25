@@ -76,22 +76,25 @@ else:
     roster_starters_map = {m.get('roster_id'): m.get('starters', []) for m in matchups} if matchups and isinstance(matchups, list) else {}
 
     all_active_players_dict = {}
-    fa_list, injury_stash_list, rostered_ids = [], [], set()
+    fa_list, league_injuries_list, rostered_ids = [], [], set()
+    player_to_owner = {}
 
     for r in rosters:
+        rid = r.get('roster_id')
+        t_name = roster_to_name.get(rid, f"Tým {rid}")
+        
+        all_r_players = []
         players_field = r.get('players')
-        if isinstance(players_field, list):
-            for p in players_field: rostered_ids.add(p)
-            
+        if isinstance(players_field, list): all_r_players.extend(players_field)
         reserve_field = r.get('reserve')
-        if isinstance(reserve_field, list):
-            for p in reserve_field: rostered_ids.add(p)
-        elif isinstance(reserve_field, dict):
-            for p in reserve_field.values(): rostered_ids.add(p)
-            
+        if isinstance(reserve_field, list): all_r_players.extend(reserve_field)
+        elif isinstance(reserve_field, dict): all_r_players.extend(reserve_field.values())
         taxi_field = r.get('taxi')
-        if isinstance(taxi_field, list):
-            for p in taxi_field: rostered_ids.add(p)
+        if isinstance(taxi_field, list): all_r_players.extend(taxi_field)
+
+        for p in all_r_players:
+            rostered_ids.add(p)
+            player_to_owner[p] = t_name
 
     for pid, p in all_players.items():
         if isinstance(p, dict) and p.get('active') and p.get('position') in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
@@ -101,6 +104,19 @@ else:
             nfl_t = p.get('team')
             injury = p.get('injury_status')
             
+            # Sběr zraněných hráčů napříč celou ligou (kdo je vlastní)
+            if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
+                owner_team = player_to_owner.get(pid, "Volný hráč (FA)")
+                ir_note = "Min. 4 týdny (Standardní IR)" if injury == 'IR' else "Krátkodobé zranění / denní hlášení"
+                league_injuries_list.append({
+                    "Jméno": pname,
+                    "Pozice": pos,
+                    "NFL Tým": nfl_t if nfl_t else "FA",
+                    "Fantasy Tým v lize": owner_team,
+                    "Status": injury,
+                    "Pravidlo / Poznámka": ir_note
+                })
+
             player_proj_data = projections.get(pid, {}) if isinstance(projections, dict) else {}
             pts_proj = player_proj_data.get('pts_ppr', player_proj_data.get('pts_standard', 0.0))
             
@@ -120,16 +136,15 @@ else:
                 
                 if pid not in rostered_ids:
                     fa_list.append(player_dict)
-                    if injury in ['IR', 'Out', 'Doubtful']:
-                        injury_stash_list.append({"Jméno": pname, "Pozice": pos, "Tým": nfl_t, "Status zranění": injury})
 
     df_fa = pd.DataFrame(fa_list).sort_values(by="Proj. Body", ascending=False) if fa_list else pd.DataFrame()
+    df_injuries = pd.DataFrame(league_injuries_list) if league_injuries_list else pd.DataFrame()
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🏆 Ligová tabulka & Per-Game",
         "🔬 Spoluhráčský Split (Without X)",
         "📋 Waiver Wire & FA", 
-        "🚨 IR Stash Alerty", 
+        "🚨 Marodka ligy & IR Alerty", 
         "📈 Playoff SOS (15-17)",
         "🔀 Trejdy", 
         "👥 Soupisky & Pozicové Stats", 
@@ -198,9 +213,11 @@ else:
             st.info("Žádní volní hráči s platnou projekcí pro zvolenou pozici v tomto týdnu.")
 
     with tab4:
-        st.subheader("🚨 Zranění hráči na waiveru (IR Stash)")
-        if injury_stash_list: st.dataframe(pd.DataFrame(injury_stash_list), use_container_width=True, hide_index=True)
-        else: st.info("Žádní zranění hráči.")
+        st.subheader("🚨 Marodka ligy & IR Alerty (Přehled zraněných hráčů napříč týmy)")
+        if not df_injuries.empty:
+            st.dataframe(df_injuries, use_container_width=True, hide_index=True, height=500)
+        else:
+            st.info("V tuto chvíli nejsou v lize registrováni žádní zranění hráči s hlášeným IR/Out stavem.")
 
     with tab5:
         st.subheader("📈 Playoff SOS (Week 15–17)")
