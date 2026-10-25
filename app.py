@@ -11,12 +11,11 @@ st.markdown("NFL Redraft PPR | Reálná NFL data & Snap Share via nfl_data_py, S
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_nfl_weekly_data():
     try:
-        df_weekly = nfl.import_weekly_data([2026])
-        return df_weekly
+        return nfl.import_weekly_data([2026])
     except Exception:
         return pd.DataFrame()
 
-with st.spinner("Načítám reálné NFL statistiky a snap share..."):
+with st.spinner("Načítám reálné NFL statistiky..."):
     df_nfl_stats = load_nfl_weekly_data()
 
 st.sidebar.header("⚙️ Nastavení ligy")
@@ -31,36 +30,41 @@ if st.sidebar.button("🔄 Aktualizovat data", type="primary"):
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_sleeper_data(lid, week):
     try:
-        league_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}")
-        rosters_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/rosters")
-        users_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/users")
-        players_res = requests.get(f"[https://api.sleeper.app/v1/players/nfl](https://api.sleeper.app/v1/players/nfl)")
-        trades_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/transactions/{week}")
-        nfl_schedule_res = requests.get(f"[https://api.sleeper.app/v1/schedule/nfl/regular/2026/](https://api.sleeper.app/v1/schedule/nfl/regular/2026/){week}")
-        matchups_res = requests.get(f"[https://api.sleeper.app/v1/league/](https://api.sleeper.app/v1/league/){lid}/matchups/{week}")
+        league_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}")
+        rosters_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/rosters")
+        users_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/users")
+        players_res = requests.get(f"https://api.sleeper.app/v1/players/nfl")
+        trades_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/transactions/{week}")
         
-        return (
-            league_res.json() if league_res.status_code == 200 else {},
-            rosters_res.json() if rosters_res.status_code == 200 else [],
-            users_res.json() if users_res.status_code == 200 else [],
-            players_res.json() if players_res.status_code == 200 else {},
-            trades_res.json() if trades_res.status_code == 200 else [],
-            nfl_schedule_res.json() if nfl_schedule_res.status_code == 200 else [],
-            matchups_res.json() if matchups_res.status_code == 200 else []
-        )
-    except Exception:
-        return {}, [], [], [], [], [], []
+        # Bezpečné načtení schedule a matchups (pokud selžou, vrátí prázdno místo pádu)
+        sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
+        matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
+        
+        league_data = league_res.json() if league_res.status_code == 200 else {}
+        rosters_data = rosters_res.json() if rosters_res.status_code == 200 else []
+        users_data = users_res.json() if users_res.status_code == 200 else []
+        players_data = players_res.json() if players_res.status_code == 200 else {}
+        trades_data = trades_res.json() if trades_res.status_code == 200 else []
+        schedule_data = sched_res.json() if sched_res.status_code == 200 else []
+        matchups_data = matchups_res.json() if matchups_res.status_code == 200 else []
+        
+        return league_data, rosters_data, users_data, players_data, trades_data, schedule_data, matchups_data
+    except Exception as e:
+        return {}, [], [], {}, [], [], []
 
 with st.spinner("Stahuji data ze Sleeper API..."):
     league_info, rosters, users, all_players, transactions, schedule, matchups = fetch_sleeper_data(league_id, selected_week)
 
-if not rosters or not all_players:
-    st.error("⚠️ Nepodařilo se stáhnout data ze Sleeper API. Zkontrolujte League ID.")
+# Debug výpis pro kontrolu, co se stáhlo
+if not rosters:
+    st.error(f"⚠️ Nepodařilo se stáhnout soupisky (rosters) pro ID: `{league_id}`. Zkontroluj, zda je ID správné a liga existuje.")
+elif not all_players:
+    st.error("⚠️ Nepodařilo se stáhnout globální databázi hráčů NFL z API.")
 else:
     st.sidebar.success("✅ Data úspěšně nahrána!")
 
     team_opponents = {}
-    if schedule:
+    if schedule and isinstance(schedule, list):
         for match in schedule:
             home, away = match.get('home'), match.get('away')
             if home and away:
@@ -69,8 +73,7 @@ else:
 
     user_map = {u.get('user_id'): u.get('metadata', {}).get('team_name') or u.get('display_name', 'Neznámý') for u in users}
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
-    
-    roster_starters_map = {m.get('roster_id'): m.get('starters', []) for m in matchups} if matchups else {}
+    roster_starters_map = {m.get('roster_id'): m.get('starters', []) for m in matchups} if matchups and isinstance(matchups, list) else {}
 
     all_active_players_dict = {}
     fa_list, injury_stash_list, rostered_ids = [], [], set()
@@ -81,7 +84,7 @@ else:
         for p in r.get('taxi', []): rostered_ids.add(p)
 
     for pid, p in all_players.items():
-        if p.get('active') and p.get('position') in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+        if isinstance(p, dict) and p.get('active') and p.get('position') in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
             pos = p.get('position')
             pname = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
             if not pname: pname = p.get('full_name', 'Neznámý')
@@ -131,7 +134,6 @@ else:
 
     with tab2:
         st.subheader("🔬 Spoluhráčský Split Analyzer")
-        st.markdown("Zadej hráče zájmu a podmínkového spoluhráče. Zvol ANO/NE, zda byl spoluhráč na hřišti.")
         player_names_list = sorted([p['Jméno'] for p in all_active_players_dict.values()])
         c_col1, c_col2, c_col3 = st.columns(3)
         with c_col1: p_main = st.selectbox("Hráč zájmu:", player_names_list, index=0 if player_names_list else 0)
@@ -158,16 +160,16 @@ else:
 
     with tab5:
         st.subheader("📈 Playoff SOS (Week 15–17)")
-        st.info("Filtrování obtížnosti losu pro finálové boj o titul.")
+        st.info("Filtrování obtížnosti losu pro finálový boj o titul.")
 
     with tab6:
-        st.subheader("🔀 Trejdy (Deadline Week 11)")
-        trades = [t for t in transactions if t.get('type') == 'trade']
+        st.subheader("🔀 Trejdy")
+        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
         st.subheader(f"👥 Soupisky týmů & Pozicové Stats (Week {selected_week})")
-        team_options = {roster_to_name.get(r.get('roster_id'), f"Tým {i+1}"): r for i, r in enumerate(rosters)}
+        team_options = {roster_to_name.get(r.get('roster_id'), f"Tým {r.get('roster_id')}"): r for r in rosters}
         selected_team_name = st.selectbox("Vyber tým:", list(team_options.keys()))
         sel_roster = team_options[selected_team_name]
         st.write(f"Celkem hráčů na soupisce: {len(sel_roster.get('players', []))}")
