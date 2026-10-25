@@ -56,6 +56,21 @@ def fetch_sleeper_data(lid, week):
 with st.spinner("Stahuji data ze Sleeper API a reálné projekce..."):
     league_info, rosters, users, all_players, transactions, schedule, matchups, projections = fetch_sleeper_data(league_id, selected_week)
 
+# Pomocná funkce pro rychlé zjištění budoucích projekcí hráče (pokud by bylo potřeba pro detailnější sken)
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_player_return_week(pid, current_week):
+    for w in range(int(current_week) + 1, 18):
+        try:
+            w_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{w}")
+            if w_res.status_code == 200:
+                w_data = w_res.json()
+                p_data = w_data.get(pid, {})
+                if p_data and float(p_data.get('pts_ppr', p_data.get('pts_standard', 0.0))) > 0:
+                    return w
+        except Exception:
+            pass
+    return None
+
 if not rosters:
     st.error(f"⚠️ Nepodařilo se stáhnout soupisky (rosters) pro ID: `{league_id}`. Zkontroluj, zda je ID správné a liga existuje.")
 elif not all_players:
@@ -109,15 +124,18 @@ else:
             
             has_no_projection = (pts_proj is None or float(pts_proj) <= 0.0)
 
-            # Sběr marodky ligy: Pouze pokud má hráč reálný NFL tým (ne FA/None) a je zraněný
             if nfl_t is not None and nfl_t != 'FA':
                 if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
                     owner_team = player_to_owner.get(pid)
                     
-                    # Zahrneme pouze hráče, kteří reálně patří nějakému týmu v naší lize
                     if owner_team:
                         if injury == 'IR':
-                            ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else "Očekávaný návrat brzy"
+                            # Zjistíme, v jakém týdnu se má hráč podle projekcí vrátit
+                            return_week = get_player_return_week(pid, selected_week)
+                            if return_week:
+                                ir_note = f"Očekávaný návrat: Week {return_week}"
+                            else:
+                                ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else "Očekávaný návrat brzy"
                         elif injury == 'Out':
                             ir_note = "Mimo sestavu pro tento týden (Out)"
                         else:
