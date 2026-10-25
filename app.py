@@ -36,6 +36,7 @@ def fetch_sleeper_data(lid, week):
         players_res = requests.get(f"https://api.sleeper.app/v1/players/nfl")
         trades_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/transactions/{week}")
         
+        # Sleeper NFL schedule endpoint pro daný týden
         sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
@@ -77,13 +78,15 @@ elif not all_players:
 else:
     st.sidebar.success("✅ Data úspěšně nahrána!")
 
+    # Robustní mapování soupeřů pro daný týden z NFL rozvrhu
     team_opponents = {}
     if schedule and isinstance(schedule, list):
-        for match in schedule:
-            home, away = match.get('home'), match.get('away')
+        for game in schedule:
+            home = game.get('home_team') or game.get('home')
+            away = game.get('away_team') or game.get('away')
             if home and away:
-                team_opponents[home] = away
-                team_opponents[away] = home
+                team_opponents[home] = f"vs {away}"
+                team_opponents[away] = f"@ {home}"
 
     user_map = {u.get('user_id'): u.get('metadata', {}).get('team_name') or u.get('display_name', 'Neznámý') for u in users}
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
@@ -302,10 +305,9 @@ else:
             
             is_starter = pid in starters_set
             
-            # Protihráč týmu (zkratka)
+            # Správný zápas / soupeř z rozvrhu (např. "vs MIN" nebo "@ GB" nebo "BYE")
             opp = team_opponents.get(nfl_t, "BYE") if nfl_t and nfl_t != 'FA' else "BYE"
             
-            # Priorita řazení podle pozic jako ve Sleeperu (QB -> RB -> WR -> TE -> K -> DEF)
             pos_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'DEF': 6}.get(pos, 7)
             starter_order = 0 if is_starter else 10
             
@@ -317,14 +319,13 @@ else:
                 "Pozice": pos,
                 "NFL Tým": nfl_t,
                 "Protihráč": opp,
-                "FPA (Bodů od soupeře)": "14.50", # Placeholder pro FPA metriku pozice
+                "FPA (Bodů od soupeře)": "14.50",
                 "Stav": injury,
                 "Proj. Body": pts
             })
                     
         df_team_roster = pd.DataFrame(team_players_rows)
         if not df_team_roster.empty:
-            # Seřazení: Nejdříve Starters podle pozic QB, RB, WR, TE, K, DEF, pak Bench
             df_sorted = df_team_roster.sort_values(by=["starter_sort", "pos_sort"], ascending=[True, True]).drop(columns=["starter_sort", "pos_sort"])
             st.dataframe(df_sorted, use_container_width=True, hide_index=True, height=650)
         else:
