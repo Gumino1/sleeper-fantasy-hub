@@ -39,7 +39,6 @@ def fetch_sleeper_data(lid, week):
         sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         
-        # Stažení reálných projekcí ze Sleeperu pro daný týden
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
         
         league_data = league_res.json() if league_res.status_code == 200 else {}
@@ -103,15 +102,12 @@ else:
             nfl_t = p.get('team')
             injury = p.get('injury_status')
             
-            # Získání reálné projekce přímo ze Sleeper API projekcí
             player_proj_data = projections.get(pid, {}) if isinstance(projections, dict) else {}
             pts_proj = player_proj_data.get('pts_ppr', player_proj_data.get('pts_standard', 0.0))
             
-            # Pokud hráč nemá reálnou projekci (je 0 nebo None, např. BYE week nebo nehraje), ignorujeme ho
             if pts_proj is None or float(pts_proj) <= 0.0:
                 continue
 
-            # Filtrujeme pouze aktivní hráče s reálným NFL týmem
             if nfl_t is not None and nfl_t != 'FA':
                 player_dict = {
                     "id": pid, 
@@ -211,7 +207,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
