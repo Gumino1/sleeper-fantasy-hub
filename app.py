@@ -56,7 +56,6 @@ def fetch_sleeper_data(lid, week):
 with st.spinner("Stahuji data ze Sleeper API a reálné projekce..."):
     league_info, rosters, users, all_players, transactions, schedule, matchups, projections = fetch_sleeper_data(league_id, selected_week)
 
-# Pomocná funkce pro rychlé zjištění budoucích projekcí hráče (pokud by bylo potřeba pro detailnější sken)
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_player_return_week(pid, current_week):
     for w in range(int(current_week) + 1, 18):
@@ -91,7 +90,7 @@ else:
     roster_starters_map = {m.get('roster_id'): m.get('starters', []) for m in matchups} if matchups and isinstance(matchups, list) else {}
 
     all_active_players_dict = {}
-    fa_list, league_injuries_list, rostered_ids = [], [], set()
+    fa_list, league_injuries_list, fa_stash_list, rostered_ids = [], [], [], set()
     player_to_owner = {}
 
     for r in rosters:
@@ -125,21 +124,15 @@ else:
             has_no_projection = (pts_proj is None or float(pts_proj) <= 0.0)
 
             if nfl_t is not None and nfl_t != 'FA':
+                # 1. Zranění hráči na soupiskách (marodka ligy)
                 if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
                     owner_team = player_to_owner.get(pid)
-                    
                     if owner_team:
-                        if injury == 'IR':
-                            # Zjistíme, v jakém týdnu se má hráč podle projekcí vrátit
-                            return_week = get_player_return_week(pid, selected_week)
-                            if return_week:
-                                ir_note = f"Očekávaný návrat: Week {return_week}"
-                            else:
-                                ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else "Očekávaný návrat brzy"
-                        elif injury == 'Out':
-                            ir_note = "Mimo sestavu pro tento týden (Out)"
+                        return_week = get_player_return_week(pid, selected_week) if injury == 'IR' else None
+                        if return_week:
+                            ir_note = f"Očekávaný návrat: Week {return_week}"
                         else:
-                            ir_note = "Hlášené zranění (Questionable/Doubtful)"
+                            ir_note = "Konec sezóny (End-of-Season)" if (injury == 'IR' and has_no_projection) else ("Mimo sestavu (Out)" if injury == 'Out' else "Hlášené zranění")
 
                         league_injuries_list.append({
                             "Jméno": pname,
@@ -148,6 +141,18 @@ else:
                             "Fantasy Tým v lize": owner_team,
                             "Status": injury,
                             "Odhad návratu / Poznámka": ir_note
+                        })
+
+                # 2. Hráči volní na FA / Waiveru, kteří jsou na IR, ale mají v budoucnu návrat (Play-off stash kandidáti)
+                if pid not in rostered_ids and injury in ['IR', 'Out']:
+                    return_week = get_player_return_week(pid, selected_week)
+                    if return_week and return_week >= 10:  # Vrací se v pozdní fázi sezóny / před playoff
+                        fa_stash_list.append({
+                            "Jméno": pname,
+                            "Pozice": pos,
+                            "NFL Tým": nfl_t,
+                            "Status": injury,
+                            "Očekávaný návrat": f"Week {return_week}"
                         })
 
             if has_no_projection:
@@ -169,6 +174,7 @@ else:
 
     df_fa = pd.DataFrame(fa_list).sort_values(by="Proj. Body", ascending=False) if fa_list else pd.DataFrame()
     df_injuries = pd.DataFrame(league_injuries_list) if league_injuries_list else pd.DataFrame()
+    df_fa_stash = pd.DataFrame(fa_stash_list) if fa_stash_list else pd.DataFrame()
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🏆 Ligová tabulka & Per-Game",
@@ -245,9 +251,17 @@ else:
     with tab4:
         st.subheader("🚨 Marodka ligy & IR Alerty (Přehled zraněných hráčů na soupiskách)")
         if not df_injuries.empty:
-            st.dataframe(df_injuries, use_container_width=True, hide_index=True, height=500)
+            st.dataframe(df_injuries, use_container_width=True, hide_index=True, height=300)
         else:
             st.info("V tuto chvíli nejsou na soupiskách týmů v lize registrováni žádní zranění hráči s hlášeným IR/Out stavem.")
+
+        st.markdown("---")
+        st.subheader("🌟 Play-off Stash Alert: Zranění hráči na Waiveru / FA s návratem do konce sezóny")
+        st.markdown("Tito hráči nejsou v lize na žádné soupisce, jsou na IR/Out, ale Sleeper u nich eviduje návrat v pozdní fázi sezóny (vhodné pro uložení na IR slot a posílení před play-off).")
+        if not df_fa_stash.empty:
+            st.dataframe(df_fa_stash, use_container_width=True, hide_index=True, height=250)
+        else:
+            st.info("V tuto chvíli nejsou na waiveru k dispozici žádní volní IR hráči s předpokládaným návratem do play-off.")
 
     with tab5:
         st.subheader("📈 Playoff SOS (Week 15–17)")
