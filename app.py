@@ -104,23 +104,33 @@ else:
             nfl_t = p.get('team')
             injury = p.get('injury_status')
             
-            # Sběr zraněných hráčů napříč celou ligou (kdo je vlastní)
+            player_proj_data = projections.get(pid, {}) if isinstance(projections, dict) else {}
+            pts_proj = player_proj_data.get('pts_ppr', player_proj_data.get('pts_standard', 0.0))
+            
+            has_no_projection = (pts_proj is None or float(pts_proj) <= 0.0)
+
+            # Sběr marodky ligy s chytřejším odhadem návratu
             if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
                 owner_team = player_to_owner.get(pid, "Volný hráč (FA)")
-                ir_note = "Min. 4 týdny (Standardní IR)" if injury == 'IR' else "Krátkodobé zranění / denní hlášení"
+                
+                if injury == 'IR':
+                    # Dynamický odhad: pokud nemá projekce do konce sezóny, jde o konec sezóny
+                    ir_note = "Konec sezóny (End-of-Season)" if has_no_projection else f"Očekávaný návrat brzy"
+                elif injury == 'Out':
+                    ir_note = "Mimo sestavu pro tento týden (Out)"
+                else:
+                    ir_note = "Hlášené zranění (Questionable/Doubtful)"
+
                 league_injuries_list.append({
                     "Jméno": pname,
                     "Pozice": pos,
                     "NFL Tým": nfl_t if nfl_t else "FA",
                     "Fantasy Tým v lize": owner_team,
                     "Status": injury,
-                    "Pravidlo / Poznámka": ir_note
+                    "Odhad návratu / Poznámka": ir_note
                 })
 
-            player_proj_data = projections.get(pid, {}) if isinstance(projections, dict) else {}
-            pts_proj = player_proj_data.get('pts_ppr', player_proj_data.get('pts_standard', 0.0))
-            
-            if pts_proj is None or float(pts_proj) <= 0.0:
+            if has_no_projection:
                 continue
 
             if nfl_t is not None and nfl_t != 'FA':
@@ -225,7 +235,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
