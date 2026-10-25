@@ -103,15 +103,16 @@ else:
             nfl_t = p.get('team')
             injury = p.get('injury_status')
             
+            # Získání reálné projekce přímo ze Sleeper API projekcí
+            player_proj_data = projections.get(pid, {}) if isinstance(projections, dict) else {}
+            pts_proj = player_proj_data.get('pts_ppr', player_proj_data.get('pts_standard', 0.0))
+            
+            # Pokud hráč nemá reálnou projekci (je 0 nebo None, např. BYE week nebo nehraje), ignorujeme ho
+            if pts_proj is None or float(pts_proj) <= 0.0:
+                continue
+
             # Filtrujeme pouze aktivní hráče s reálným NFL týmem
             if nfl_t is not None and nfl_t != 'FA':
-                # Získání reálné projekce pro daného hráče ze Sleeper API projekcí (pokud existuje)
-                player_proj_data = projections.get(pid, {}) if isinstance(projections, dict) else {}
-                pts_proj = player_proj_data.get('pts_ppr', player_proj_data.get('pts_standard', 0.0))
-                if not pts_proj:
-                    # Fallback na základě pozice, pokud Sleeper projekci pro daného hráče nemá
-                    pts_proj = 14.0 if pos == 'QB' else (11.0 if pos == 'RB' else (10.0 if pos == 'WR' else 7.0))
-                
                 player_dict = {
                     "id": pid, 
                     "Jméno": pname, 
@@ -188,8 +189,6 @@ else:
 
     with tab3:
         st.subheader("📋 Volní hráči (Waiver Wire & FA)")
-        
-        # Interaktivní tlačítka na výběr pozic (přesně jako ve Sleeperu)
         pos_filter = st.radio("Filtrovat pozici:", ["Všechny", "QB", "RB", "WR", "TE", "K", "DEF"], horizontal=True)
         
         filtered_df = df_fa.copy()
@@ -199,7 +198,7 @@ else:
         if not filtered_df.empty:
             st.dataframe(filtered_df.drop(columns=["id"]), use_container_width=True, hide_index=True, height=500)
         else:
-            st.info("Žádní volní hráči pro zvolenou pozici.")
+            st.info("Žádní volní hráči s platnou projekcí pro zvolenou pozici v tomto týdnu.")
 
     with tab4:
         st.subheader("🚨 Zranění hráči na waiveru (IR Stash)")
@@ -212,7 +211,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
