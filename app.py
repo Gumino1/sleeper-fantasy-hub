@@ -87,7 +87,15 @@ else:
 
     user_map = {u.get('user_id'): u.get('metadata', {}).get('team_name') or u.get('display_name', 'Neznámý') for u in users}
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
-    roster_starters_map = {m.get('roster_id'): m.get('starters', []) for m in matchups} if matchups and isinstance(matchups, list) else {}
+    
+    # Mapování matchupů pro získání starters daného týmu v daném týdnu
+    roster_starters_map = {}
+    if matchups and isinstance(matchups, list):
+        for m in matchups:
+            rid = m.get('roster_id')
+            starters = m.get('starters', [])
+            if rid:
+                roster_starters_map[rid] = set(starters)
 
     all_active_players_dict = {}
     fa_list, league_injuries_list, fa_stash_list, rostered_ids = [], [], [], set()
@@ -124,7 +132,6 @@ else:
             has_no_projection = (pts_proj is None or float(pts_proj) <= 0.0)
 
             if nfl_t is not None and nfl_t != 'FA':
-                # 1. Zranění hráči na soupiskách (marodka ligy)
                 if injury in ['IR', 'Out', 'Doubtful', 'Questionable']:
                     owner_team = player_to_owner.get(pid)
                     if owner_team:
@@ -143,10 +150,9 @@ else:
                             "Odhad návratu / Poznámka": ir_note
                         })
 
-                # 2. Hráči volní na FA / Waiveru, kteří jsou na IR, ale mají v budoucnu návrat (Play-off stash kandidáti)
                 if pid not in rostered_ids and injury in ['IR', 'Out']:
                     return_week = get_player_return_week(pid, selected_week)
-                    if return_week and return_week >= 10:  # Vrací se v pozdní fázi sezóny / před playoff
+                    if return_week and return_week >= 10:
                         fa_stash_list.append({
                             "Jméno": pname,
                             "Pozice": pos,
@@ -155,9 +161,6 @@ else:
                             "Očekávaný návrat": f"Week {return_week}"
                         })
 
-            if has_no_projection:
-                continue
-
             if nfl_t is not None and nfl_t != 'FA':
                 player_dict = {
                     "id": pid, 
@@ -165,11 +168,11 @@ else:
                     "Pozice": pos, 
                     "Tým": nfl_t, 
                     "Stav": injury if injury else "Zdravý",
-                    "Proj. Body": f"{float(pts_proj):.2f}"
+                    "Proj. Body": f"{float(pts_proj):.2f}" if not has_no_projection else "0.00"
                 }
                 all_active_players_dict[pid] = player_dict
                 
-                if pid not in rostered_ids:
+                if pid not in rostered_ids and not has_no_projection:
                     fa_list.append(player_dict)
 
     df_fa = pd.DataFrame(fa_list).sort_values(by="Proj. Body", ascending=False) if fa_list else pd.DataFrame()
@@ -277,7 +280,51 @@ else:
         team_options = {roster_to_name.get(r.get('roster_id'), f"Tým {r.get('roster_id')}"): r for r in rosters}
         selected_team_name = st.selectbox("Vyber tým:", list(team_options.keys()))
         sel_roster = team_options[selected_team_name]
-        st.write(f"Celkem hráčů na soupisce: {len(sel_roster.get('players', [])) if isinstance(sel_roster.get('players'), list) else 0}")
+        
+        rid = sel_roster.get('roster_id')
+        starters_set = roster_starters_map.get(rid, set())
+        
+        all_team_pids = []
+        for f_name in ['players', 'reserve', 'taxi']:
+            f_data = sel_roster.get(f_name)
+            if isinstance(f_data, list): all_team_pids.extend(f_data)
+            elif isinstance(f_data, dict): all_team_pids.extend(f_data.values())
+            
+        team_players_rows = []
+        for pid in all_team_pids:
+            p_info = all_active_players_dict.get(pid)
+            if p_info:
+                is_starter = pid in starters_set
+                slot_type = "Starters (Základní sestava)" if is_starter else "Bench / IR (Lavička / Rezerva)"
+                team_players_rows.append({
+                    "Role v týmu": slot_type,
+                    "Jméno": p_info["Jméno"],
+                    "Pozice": p_info["Pozice"],
+                    "NFL Tým": p_info["Tým"],
+                    "Stav": p_info["Stav"],
+                    "Proj. Body": p_info["Proj. Body"]
+                })
+            else:
+                # Pokud hráč není v aktivním dictu, zkusíme ho vytáhnout alespoň základně
+                raw_p = all_players.get(pid, {})
+                if isinstance(raw_p, dict):
+                    pname = f"{raw_p.get('first_name', '')} {raw_p.get('last_name', '')}".strip()
+                    if not pname: pname = raw_p.get('full_name', 'Neznámý')
+                    is_starter = pid in starters_set
+                    team_players_rows.append({
+                        "Role v týmu": "Starters (Základní sestava)" if is_starter else "Bench / IR (Lavička / Rezerva)",
+                        "Jméno": pname,
+                        "Pozice": raw_p.get('position', 'FA'),
+                        "NFL Tým": raw_p.get('team', 'FA'),
+                        "Stav": raw_p.get('injury_status', 'Zdravý'),
+                        "Proj. Body": "0.00"
+                    })
+                    
+        df_team_roster = pd.DataFrame(team_players_rows)
+        if not df_team_roster.empty:
+            st.dataframe(df_team_roster.sort_values(by=["Role v týmu", "Proj. Body"], ascending=[True, False]), use_container_width=True, hide_index=True, height=500)
+        else:
+            st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
         st.subheader("📊 Points Allowed (FPA)")
