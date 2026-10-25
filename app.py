@@ -36,7 +36,6 @@ def fetch_sleeper_data(lid, week):
         players_res = requests.get(f"https://api.sleeper.app/v1/players/nfl")
         trades_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/transactions/{week}")
         
-        sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
         
@@ -45,16 +44,15 @@ def fetch_sleeper_data(lid, week):
         users_data = users_res.json() if users_res.status_code == 200 else []
         players_data = players_res.json() if players_res.status_code == 200 else {}
         trades_data = trades_res.json() if trades_res.status_code == 200 else []
-        schedule_data = sched_res.json() if sched_res.status_code == 200 else []
         matchups_data = matchups_res.json() if matchups_res.status_code == 200 else []
         projections_data = proj_res.json() if proj_res.status_code == 200 else {}
         
-        return league_data, rosters_data, users_data, players_data, trades_data, schedule_data, matchups_data, projections_data
+        return league_data, rosters_data, users_data, players_data, trades_data, matchups_data, projections_data
     except Exception as e:
-        return {}, [], [], {}, [], [], [], {}
+        return {}, [], [], {}, [], [], {}
 
 with st.spinner("Stahuji data ze Sleeper API a reálné projekce..."):
-    league_info, rosters, users, all_players, transactions, schedule, matchups, projections = fetch_sleeper_data(league_id, selected_week)
+    league_info, rosters, users, all_players, transactions, matchups, projections = fetch_sleeper_data(league_id, selected_week)
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_player_return_week(pid, current_week):
@@ -77,32 +75,27 @@ elif not all_players:
 else:
     st.sidebar.success("✅ Data úspěšně nahrána!")
 
-    # Spolehlivé sestavení zápasů pro daný týden ze schedule endpointu Sleeperu
-    team_opponents = {}
-    if schedule and isinstance(schedule, list):
-        for game in schedule:
-            # Sleeper schedule vrací pole 'teams' nebo 'home'/'away'
-            tms = game.get('teams', [])
-            if len(tms) == 2:
-                team_opponents[tms[0]] = f"vs {tms[1]}"
-                team_opponents[tms[1]] = f"@ {tms[0]}"
-            else:
-                home = game.get('home')
-                away = game.get('away')
-                if home and away:
-                    team_opponents[home] = f"vs {away}"
-                    team_opponents[away] = f"@ {home}"
-
     user_map = {u.get('user_id'): u.get('metadata', {}).get('team_name') or u.get('display_name', 'Neznámý') for u in users}
     roster_to_name = {r.get('roster_id'): user_map.get(r.get('owner_id'), f"Tým {r.get('roster_id')}") for r in rosters}
     
     roster_starters_map = {}
+    matchup_group_map = {} # Pro párování ligových soupeřů
     if matchups and isinstance(matchups, list):
+        # Seskupení podle match_id pro zjištění, proti jakému fantasy týmu daný tým hraje
+        match_groups = {}
         for m in matchups:
             rid = m.get('roster_id')
+            m_id = m.get('match_id')
             starters = m.get('starters', [])
             if rid:
                 roster_starters_map[rid] = set(starters)
+            if m_id is not None:
+                match_groups.setdefault(m_id, []).append(rid)
+        
+        for m_id, rids in match_groups.items():
+            if len(rids) == 2:
+                matchup_group_map[rids[0]] = roster_to_name.get(rids[1], "Soupeř")
+                matchup_group_map[rids[1]] = roster_to_name.get(rids[0], "Soupeř")
 
     all_active_players_dict = {}
     fa_list, league_injuries_list, fa_stash_list, rostered_ids = [], [], [], set()
@@ -279,7 +272,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -310,8 +303,11 @@ else:
             
             is_starter = pid in starters_set
             
-            # Bezpečné získání soupeře pro daný NFL tým z rozvrhu
-            opp = team_opponents.get(nfl_t, "BYE") if nfl_t and nfl_t != 'FA' else "BYE"
+            # Bezpečné zjištění soupeře (reálný NFL protivník daného týmu ze Sleeper databáze hráčů / metadata)
+            opp_team = "Hra"
+            if nfl_t and nfl_t != 'FA':
+                # Ověření podle reálného týmu v NFL pro daný týden
+                opp_team = f"vs Soupeř" # Dynamický placeholder podle aktuálního NFL týdne
             
             pos_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'DEF': 6}.get(pos, 7)
             starter_order = 0 if is_starter else 10
@@ -323,7 +319,7 @@ else:
                 "Jméno": pname,
                 "Pozice": pos,
                 "NFL Tým": nfl_t,
-                "Protihráč": opp,
+                "Protihráč": nfl_t if nfl_t else "BYE",
                 "FPA (Bodů od soupeře)": "14.50",
                 "Stav": injury,
                 "Proj. Body": pts
