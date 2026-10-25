@@ -77,9 +77,20 @@ else:
     fa_list, injury_stash_list, rostered_ids = [], [], set()
 
     for r in rosters:
-        for p in r.get('players', []): rostered_ids.add(p)
-        for p in r.get('reserve', []): rostered_ids.add(p)
-        for p in r.get('taxi', []): rostered_ids.add(p)
+        # Bezpečné načtení hráčů z rosteru (ošetření typů)
+        players_field = r.get('players')
+        if isinstance(players_field, list):
+            for p in players_field: rostered_ids.add(p)
+            
+        reserve_field = r.get('reserve')
+        if isinstance(reserve_field, list):
+            for p in reserve_field: rostered_ids.add(p)
+        elif isinstance(reserve_field, dict):
+            for p in reserve_field.values(): rostered_ids.add(p)
+            
+        taxi_field = r.get('taxi')
+        if isinstance(taxi_field, list):
+            for p in taxi_field: rostered_ids.add(p)
 
     for pid, p in all_players.items():
         if isinstance(p, dict) and p.get('active') and p.get('position') in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
@@ -170,7 +181,7 @@ else:
         team_options = {roster_to_name.get(r.get('roster_id'), f"Tým {r.get('roster_id')}"): r for r in rosters}
         selected_team_name = st.selectbox("Vyber tým:", list(team_options.keys()))
         sel_roster = team_options[selected_team_name]
-        st.write(f"Celkem hráčů na soupisce: {len(sel_roster.get('players', []))}")
+        st.write(f"Celkem hráčů na soupisce: {len(sel_roster.get('players', [])) if isinstance(sel_roster.get('players'), list) else 0}")
 
     with tab8:
         st.subheader("📊 Points Allowed (FPA)")
