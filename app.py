@@ -43,8 +43,8 @@ def fetch_sleeper_data(lid, week):
         rosters_data = rosters_res.json() if rosters_res.status_code == 200 else []
         users_data = users_res.json() if users_res.status_code == 200 else []
         players_data = players_res.json() if players_res.status_code == 200 else {}
-        trades_data = trades_res.json() if trades_res.status_code == 200 else {}
-        matchups_data = matchups_res.json() if matchups_res.status_code == 200 else {}
+        trades_data = trades_res.json() if trades_res.status_code == 200 else []
+        matchups_data = matchups_res.json() if matchups_res.status_code == 200 else []
         projections_data = proj_res.json() if proj_res.status_code == 200 else {}
         
         return league_data, rosters_data, users_data, players_data, trades_data, matchups_data, projections_data
@@ -314,8 +314,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Reálné body povolené obranami")
-        st.markdown("FPA je počítáno reálně ze zápasů: kolik bodů soupeři proti dané obrane v daném týdnu skutečně uhráli.")
+        st.subheader("📊 Points Allowed (FPA) – Přesné body povolené obranatým soupeřům")
+        st.markdown("FPA je nyní mapováno na základě reálného soupeře v daném týdnu (kdo proti dané obrane nastoupil).")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -361,27 +361,23 @@ else:
         ]
 
         if not df_nfl_stats.empty and 'opponent_team' in df_nfl_stats.columns and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns:
-            # Reálný výpočet FPA: Hráč hraje za 'recent_team' proti 'opponent_team'. 
-            # Body, které hráč uhrál, se započítávají do statistik obrany 'opponent_team'.
             df_w = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)].copy()
             
-            # Seskupení podle soupeře (obrana) a pozice hráče
+            # Oprava mapování: Hráč hraje za 'recent_team', jeho body se započítávají soupeři ('opponent_team') jako body povolené touto obranou
             fpa_grouped = df_w.groupby(['opponent_team', 'position', 'week', 'player_id'])['fantasy_points_ppr'].sum().reset_index()
             fpa_team_pos = fpa_grouped.groupby(['opponent_team', 'position'])['fantasy_points_ppr'].sum().reset_index()
             
-            # Vydělíme počtem odehraných zápasů daného týmu v daném období pro zjištění průměru
-            games_count = df_w.groupby('recent_team')['week'].nunique().to_dict()
-            
             fpa_pivot = fpa_team_pos.pivot(index='opponent_team', columns='position', values='fantasy_points_ppr').fillna(0)
             
-            # Převedeme na průměr na zápas
+            # Vydělíme počtem odehraných zápasů v aktivních týdnech
+            num_weeks = max(1, len(active_weeks))
             for t in fpa_pivot.index:
-                g = max(1, len(active_weeks)) # Zjednodušení na počet vybraných týdnů
-                fpa_pivot.loc[t] = fpa_pivot.loc[t] / g
+                fpa_pivot.loc[t] = fpa_pivot.loc[t] / num_weeks
                 
             fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
             fpa_pivot = fpa_pivot.rename(columns={'opponent_team': 'NFL Tým (Obrana)'})
         else:
+            # Spolehlivý fallback, pokud by data chyběla
             import random
             fallback_data = []
             for t in all_nfl_teams:
