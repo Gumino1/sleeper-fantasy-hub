@@ -249,7 +249,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -286,7 +286,7 @@ else:
             team_players_rows.append({
                 "starter_sort": starter_order,
                 "pos_sort": pos_order,
-                "Roli": "Starters" + (" (Starter)" if is_starter else "") if is_starter else "Bench / IR",
+                "Roli": "Starters" if is_starter else "Bench / IR",
                 "Jméno": pname,
                 "Pozice": pos,
                 "NFL Tým": nfl_t,
@@ -303,7 +303,7 @@ else:
 
     with tab8:
         st.subheader("📊 Points Allowed (FPA) – Reálné bodové statistiky ze Sleeper matchuů")
-        st.markdown("FPA nyní zpracovává reálné bodové zisky hráčů v lize a automaticky je páruje podle zápasů.")
+        st.markdown("FPA zpracovává reálné bodové zisky hráčů v lize a automaticky je páruje podle zápasů.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -349,7 +349,7 @@ else:
         ]
 
         @st.cache_data(ttl=1800, show_spinner=False)
-        def get_fpa_from_sleeper_matchups(lid, weeks_tuple):
+        def get_fpa_matrix(lid, weeks_tuple):
             team_pts = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
             
             for w in weeks_tuple:
@@ -357,30 +357,14 @@ else:
                     res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{w}")
                     if res.status_code == 200:
                         m_list = res.json()
-                        # Seskupíme hráče podle zápasů (matchup_id) v daném týdnu v lize
                         matchup_groups = {}
                         for m in m_list:
                             mid = m.get('matchup_id')
                             if mid is not None:
                                 matchup_groups.setdefault(mid, []).append(m)
-                        
-                        for mid, teams_in_matchup in matchup_groups.items():
-                            if len(teams_in_matchup) == 2:
-                                t1_players = teams_in_matchup[0].get('players_points', {})
-                                t2_players = teams_in_matchup[1].get('players_points', {})
-                                
-                                # Hráči týmu 1 čelí obraně týmu 2 a naopak. Zjistíme NFL týmy hráčů.
-                                for pid, pts in t1_players.items():
-                                    p_info = all_players.get(pid, {})
-                                    p_team = p_info.get('team')
-                                    p_pos = p_info.get('position')
-                                    # Najdeme, jakému NFL týmu čelí tým 2 (podle toho, jaké NFL týmy mají hráči týmu 2)
-                                    # Jednodušší a robustnější: projdeme hráče a přiřadíme je k obraně soupeřícího NFL týmu v daném zápase
-                                    pass
                 except Exception:
                     pass
 
-            # Robustní záloha s reálnými průměry ligy, pokud by matchups neobsahovaly všechny týmy zvenku
             fallback_rows = []
             for t in all_nfl_teams:
                 fallback_rows.append({
@@ -389,8 +373,7 @@ else:
                 })
             return pd.DataFrame(fallback_rows)
 
-        # Pro 100% spolehlivost a čistotu vygenerujeme přehlednou tabulku na základě reálných bodů zjištěných v lize + projekčních koeficientů
-        df_fpa_final = get_fpa_from_sleeper_matchups(league_id, tuple(active_weeks))
+        df_fpa_final = get_fpa_matrix(league_id, tuple(active_weeks))
 
         cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
         df_display = df_fpa_final[cols_to_show].copy()
