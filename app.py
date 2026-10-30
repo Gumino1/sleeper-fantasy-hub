@@ -302,8 +302,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Reálná FPA matice ze zápasů v lize")
-        st.markdown("FPA nyní bere skutečné body hráčů nasazených v ligových zápasech a přesně je páruje proti bránícím týmům.")
+        st.subheader("📊 Points Allowed (FPA) – Reálné NFL Stats ze Sleeper API")
+        st.markdown("FPA nyní stahuje reálné bodové statistiky ze Sleeper Game Center pro všechny hráče a pozice.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -349,57 +349,38 @@ else:
         ]
 
         @st.cache_data(ttl=1800, show_spinner=False)
-        def get_real_fpa_from_matchups(lid, weeks_tuple):
+        def get_fpa_from_nfl_stats(weeks_tuple):
             team_allowed = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
             
             for w in weeks_tuple:
                 try:
-                    m_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{w}")
-                    if m_res.status_code == 200:
-                        m_data = m_res.json()
-                        # Seskupíme podle matchup_id
-                        matchups_map = {}
-                        for m in m_data:
-                            mid = m.get('matchup_id')
-                            if mid is not None:
-                                matchups_map.setdefault(mid, []).append(m)
+                    # Oficiální Sleeper endpoint pro reálné NFL zápasy a rozpis v daném týdnu
+                    sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
+                    stats_res = requests.get(f"https://api.sleeper.com/v1/stats/nfl/regular/2026/{w}")
+                    
+                    if sched_res.status_code == 200:
+                        schedule_data = sched_res.json()
+                        # Mapování zápasů: který tým hrál proti kterému
+                        team_opponent = {}
+                        for game in schedule_data:
+                            h = game.get('home_team')
+                            a = game.get('away_team')
+                            if h and a:
+                                team_opponent[h] = a
+                                team_opponent[a] = h
                         
-                        for mid, pair in matchups_map.items():
-                            if len(pair) == 2:
-                                t1_pts = pair[0].get('players_points', {})
-                                t2_pts = pair[1].get('players_points', {})
+                        if stats_res.status_code == 200:
+                            stats_data = stats_res.json()
+                            for pid, pdata in stats_data.items():
+                                p_info = all_players.get(pid, {})
+                                p_team = p_info.get('team')
+                                p_pos = p_info.get('position')
                                 
-                                # Zjistíme NFL týmy pro hráče v obou týmech
-                                t1_nfl_teams = set()
-                                for pid in pair[0].get('players', []):
-                                    p = all_players.get(pid, {})
-                                    if p.get('team'): t1_nfl_teams.add(p.get('team'))
-                                    
-                                t2_nfl_teams = set()
-                                for pid in pair[1].get('players', []):
-                                    p = all_players.get(pid, {})
-                                    if p.get('team'): t2_nfl_teams.add(p.get('team'))
-                                    
-                                # Přibližný odhad soupeře z rozpisů / zápasů v kole
-                                # Pro zajištění přesnosti použijeme reálné body hráčů a přiřadíme je proti protivníkům
-                                for pid, pts in t1_pts.items():
-                                    p_info = all_players.get(pid, {})
-                                    p_team = p_info.get('team')
-                                    p_pos = p_info.get('position')
-                                    if p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] and p_team:
-                                        # Soupeřem je tým z druhého rosteru v matchupu
-                                        for opp_t in t2_nfl_teams:
-                                            if opp_t != p_team:
-                                                team_allowed[opp_t][p_pos].append(float(pts))
-                                                
-                                for pid, pts in t2_pts.items():
-                                    p_info = all_players.get(pid, {})
-                                    p_team = p_info.get('team')
-                                    p_pos = p_info.get('position')
-                                    if p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] and p_team:
-                                        for opp_t in t1_nfl_teams:
-                                            if opp_t != p_team:
-                                                team_allowed[opp_t][p_pos].append(float(pts))
+                                if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                                    pts = float(pdata.get('pts_ppr', pdata.get('pts_standard', 0.0)))
+                                    opp = team_opponent.get(p_team)
+                                    if opp and opp in all_nfl_teams:
+                                        team_allowed[opp][p_pos].append(pts)
                 except Exception:
                     pass
             
@@ -411,13 +392,13 @@ else:
                     if vals:
                         row[pos] = round(sum(vals) / len(vals), 2)
                     else:
-                        # Výchozí reálné ligové průměry pro pozice, pokud v lize nebyl hráč nasazen
-                        defaults = {'QB': 17.50, 'RB': 21.00, 'WR': 28.50, 'TE': 11.20, 'K': 7.90, 'DEF': 7.10}
+                        # Fallback průměr pro týmy, které mají např. bye week
+                        defaults = {'QB': 17.20, 'RB': 21.50, 'WR': 29.10, 'TE': 11.80, 'K': 8.20, 'DEF': 7.40}
                         row[pos] = defaults.get(pos, 10.0)
                 rows.append(row)
             return pd.DataFrame(rows)
 
-        df_fpa_final = get_real_fpa_from_matchups(league_id, tuple(active_weeks))
+        df_fpa_final = get_fpa_from_nfl_stats(tuple(active_weeks))
 
         cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
         df_display = df_fpa_final[cols_to_show].copy()
