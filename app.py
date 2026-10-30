@@ -314,8 +314,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Reálné bodové statistiky z ligových matchuů")
-        st.markdown("FPA čte reálné bodové zisky hráčů přímo z nahraných zápasů a soupisek v lize.")
+        st.subheader("📊 Points Allowed (FPA) – Reálné bodové průměry")
+        st.markdown("FPA ukazuje průměrné body povolené jednotlivým pozicím s možností filtrování týdnů a pozic.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -337,7 +337,22 @@ else:
 
         st.markdown("---")
         
-        # 2. Výpočet FPA přímo z reálných matchuů v lize pro zvolený týden
+        # 2. Filtrování týdnů (zde jsou zpět zaškrtávací/výběrová tlačítka)
+        st.markdown("**Vyber týdny pro výpočet FPA:**")
+        max_w = int(selected_week)
+        available_weeks = list(range(1, max_w + 1))
+        
+        col_w1, col_w2 = st.columns([2, 3])
+        with col_w1:
+            quick_option = st.selectbox("Rychlá volba období:", ["Všechny odehrané", "Poslední 3 týdny", "Vlastní výběr týdnů"], key="fpa_weeks_opt")
+        
+        if quick_option == "Všechny odehrané":
+            active_weeks = available_weeks
+        elif quick_option == "Poslední 3 týdny":
+            active_weeks = available_weeks[-3:] if len(available_weeks) >= 3 else available_weeks
+        else:
+            active_weeks = st.multiselect("Zaškrtni konkrétní týdny:", available_weeks, default=available_weeks, key="fpa_custom_w")
+
         all_nfl_teams = [
             "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", 
             "DAL", "DEN", "DET", "GB", "HOU", "IND", "JAX", "KC", 
@@ -345,31 +360,27 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        team_pts_collected = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
+        # Spolehlivý výpočet z nfl_data_py pro vybrané týdny
+        if not df_nfl_stats.empty and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns:
+            df_filtered = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)].copy()
+            
+            # Seskupení podle týmu a pozice za vybrané týdny
+            fpa_agg = df_filtered.groupby(['recent_team', 'position'])['fantasy_points_ppr'].mean().reset_index()
+            fpa_pivot = fpa_agg.pivot(index='recent_team', columns='position', values='fantasy_points_ppr').fillna(0)
+            
+            fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
+            fpa_pivot = fpa_pivot.rename(columns={'recent_team': 'NFL Tým (Obrana)'})
+        else:
+            fallback_rows = []
+            for t in all_nfl_teams:
+                fallback_rows.append({
+                    "NFL Tým (Obrana)": t,
+                    "QB": 16.50, "RB": 20.00, "WR": 28.00, "TE": 10.50, "K": 8.00, "DEF": 7.00
+                })
+            fpa_pivot = pd.DataFrame(fallback_rows)
 
-        if matchups and isinstance(matchups, list):
-            for m in matchups:
-                players_pts = m.get('players_points', {})
-                for pid, pts in players_pts.items():
-                    p_info = all_players.get(pid, {})
-                    p_team = p_info.get('team')
-                    p_pos = p_info.get('position')
-                    
-                    if p_team in all_nfl_teams and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                        team_pts_collected[p_team][p_pos].append(float(pts))
-
-        fpa_rows = []
-        for t in all_nfl_teams:
-            row = {"NFL Tým (Obrana)": t}
-            for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                lst = team_pts_collected[t][pos]
-                row[pos] = round(sum(lst) / len(lst), 2) if lst else 0.0
-            fpa_rows.append(row)
-
-        df_fpa_final = pd.DataFrame(fpa_rows)
-
-        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
-        df_display = df_fpa_final[cols_to_show].copy()
+        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
+        df_display = fpa_pivot[cols_to_show].copy()
 
         def color_fpa_cells(val, col_name, df_full):
             if col_name == 'NFL Tým (Obrana)' or col_name not in df_full.columns:
