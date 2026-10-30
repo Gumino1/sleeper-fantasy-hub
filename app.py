@@ -314,8 +314,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Reálné statistiky z NFL databáze")
-        st.markdown("FPA nyní čte reálné týdenní statistiky hráčů a spáruje je s týmy.")
+        st.subheader("📊 Points Allowed (FPA) – Výpočet z reálných ligových matchuů")
+        st.markdown("FPA čerpá reálné bodové zisky přímo z ligových zápasů (matchups) a přiřazuje je podle soupeřů v daném týdnu.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -360,29 +360,56 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        # Vytvoříme spolehlivou FPA matici přímo z nahraných df_nfl_stats dat
-        if not df_nfl_stats.empty and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns:
-            df_filtered = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)].copy()
+        @st.cache_data(ttl=1800, show_spinner=False)
+        def get_matchup_based_fpa(weeks_tuple, lid):
+            team_allowed_points = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
             
-            # Agregace bodů podle týmu a pozice
-            fpa_agg = df_filtered.groupby(['recent_team', 'position'])['fantasy_points_ppr'].mean().reset_index()
-            fpa_pivot = fpa_agg.pivot(index='recent_team', columns='position', values='fantasy_points_ppr').fillna(0)
+            for w in weeks_tuple:
+                try:
+                    m_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{w}")
+                    sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
+                    
+                    if m_res.status_code == 200 and sched_res.status_code == 200:
+                        m_data = m_res.json()
+                        sched_data = sched_res.json()
+                        
+                        # Mapa NFL zápasů: team -> opponent
+                        team_opp = {}
+                        for game in sched_data:
+                            h = game.get('home_team')
+                            a = game.get('away_team')
+                            if h and a:
+                                team_opp[h] = a
+                                team_opp[a] = h
+                        
+                        # Projdeme všechny hráče v matchuích ligy v daném týdnu
+                        for match in m_data:
+                            players_pts = match.get('players_points', {})
+                            for pid, pts in players_pts.items():
+                                p_info = all_players.get(pid, {})
+                                p_team = p_info.get('team')
+                                p_pos = p_info.get('position')
+                                
+                                if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                                    opp = team_opp.get(p_team)
+                                    if opp:
+                                        team_allowed_points[opp][p_pos].append(float(pts))
+                except Exception:
+                    pass
             
-            # Převod na plný seznam 32 týmů
-            fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
-            fpa_pivot = fpa_pivot.rename(columns={'recent_team': 'NFL Tým (Obrana)'})
-        else:
-            # Záložní data, pokud by nfl_data_py nevrátilo tabulku
-            fallback_rows = []
+            matrix_rows = []
             for t in all_nfl_teams:
-                fallback_rows.append({
-                    "NFL Tým (Obrana)": t,
-                    "QB": 16.50, "RB": 20.00, "WR": 28.00, "TE": 10.50, "K": 8.00, "DEF": 7.00
-                })
-            fpa_pivot = pd.DataFrame(fallback_rows)
+                row = {"NFL Tým (Obrana)": t}
+                for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                    pts_list = team_allowed_points[t][pos]
+                    row[pos] = round(sum(pts_list) / len(pts_list), 2) if pts_list else 0.0
+                matrix_rows.append(row)
+            return pd.DataFrame(matrix_rows)
 
-        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
-        df_display = fpa_pivot[cols_to_show].copy()
+        df_fpa_final = get_matchup_based_fpa(tuple(active_weeks), league_id)
+
+        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
+        df_display = df_fpa_final[cols_to_show].copy()
 
         def color_fpa_cells(val, col_name, df_full):
             if col_name == 'NFL Tým (Obrana)' or col_name not in df_full.columns:
