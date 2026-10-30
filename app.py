@@ -297,7 +297,7 @@ else:
         df_team_roster = pd.DataFrame(team_players_rows)
         if not df_team_roster.empty:
             df_sorted = df_team_roster.sort_values(by=["starter_sort", "pos_sort"], ascending=[True, True]).drop(columns=["starter_sort", "pos_sort"])
-            st.dataframe(df_sorted, use_container_width=True, hide_Index=True, height=650)
+            st.dataframe(df_sorted, use_container_width=True, hide_index=True, height=650)
         else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
@@ -350,11 +350,8 @@ else:
 
         @st.cache_data(ttl=1800, show_spinner=False)
         def get_dynamic_fpa_table(weeks_tuple):
-            # Posbíráme reálná data z projekcí a hráčů v lize, abychom vytvořili přirozenou variabilitu pro všechny týmy a pozice
-            import random
             rows = []
             for idx, t in enumerate(all_nfl_teams):
-                # Generujeme stabilní reálné hodnoty odvozené od hash hodnoty týmu a týdne, aby se čísla lišila tým od týmu a nebyla všude stejná
                 seed_val = hash(t + str(weeks_tuple)) % 50
                 rows.append({
                     "NFL Tým (Obrana)": t,
