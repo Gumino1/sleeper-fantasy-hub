@@ -314,8 +314,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Výpočet z reálných ligových matchuů")
-        st.markdown("FPA čerpá reálné bodové zisky přímo z ligových zápasů (matchups) a přiřazuje je podle soupeřů v daném týdnu.")
+        st.subheader("📊 Points Allowed (FPA) – Reálné bodové statistiky z ligových matchuů")
+        st.markdown("FPA čte reálné bodové zisky hráčů přímo z nahraných zápasů a soupisek v lize.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -337,22 +337,7 @@ else:
 
         st.markdown("---")
         
-        # 2. Filtrování týdnů
-        st.markdown("**Vyber týdny pro výpočet FPA:**")
-        max_w = int(selected_week)
-        available_weeks = list(range(1, max_w + 1))
-        
-        col_w1, col_w2 = st.columns([2, 3])
-        with col_w1:
-            quick_option = st.selectbox("Rychlá volba období:", ["Všechny odehrané", "Poslední 3 týdny", "Vlastní výběr týdnů"], key="fpa_weeks_opt")
-        
-        if quick_option == "Všechny odehrané":
-            active_weeks = available_weeks
-        elif quick_option == "Poslední 3 týdny":
-            active_weeks = available_weeks[-3:] if len(available_weeks) >= 3 else available_weeks
-        else:
-            active_weeks = st.multiselect("Zaškrtni konkrétní týdny:", available_weeks, default=available_weeks, key="fpa_custom_w")
-
+        # 2. Výpočet FPA přímo z reálných matchuů v lize pro zvolený týden
         all_nfl_teams = [
             "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", 
             "DAL", "DEN", "DET", "GB", "HOU", "IND", "JAX", "KC", 
@@ -360,53 +345,28 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        @st.cache_data(ttl=1800, show_spinner=False)
-        def get_matchup_based_fpa(weeks_tuple, lid):
-            team_allowed_points = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
-            
-            for w in weeks_tuple:
-                try:
-                    m_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{w}")
-                    sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
-                    
-                    if m_res.status_code == 200 and sched_res.status_code == 200:
-                        m_data = m_res.json()
-                        sched_data = sched_res.json()
-                        
-                        # Mapa NFL zápasů: team -> opponent
-                        team_opp = {}
-                        for game in sched_data:
-                            h = game.get('home_team')
-                            a = game.get('away_team')
-                            if h and a:
-                                team_opp[h] = a
-                                team_opp[a] = h
-                        
-                        # Projdeme všechny hráče v matchuích ligy v daném týdnu
-                        for match in m_data:
-                            players_pts = match.get('players_points', {})
-                            for pid, pts in players_pts.items():
-                                p_info = all_players.get(pid, {})
-                                p_team = p_info.get('team')
-                                p_pos = p_info.get('position')
-                                
-                                if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                                    opp = team_opp.get(p_team)
-                                    if opp:
-                                        team_allowed_points[opp][p_pos].append(float(pts))
-                except Exception:
-                    pass
-            
-            matrix_rows = []
-            for t in all_nfl_teams:
-                row = {"NFL Tým (Obrana)": t}
-                for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                    pts_list = team_allowed_points[t][pos]
-                    row[pos] = round(sum(pts_list) / len(pts_list), 2) if pts_list else 0.0
-                matrix_rows.append(row)
-            return pd.DataFrame(matrix_rows)
+        team_pts_collected = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
 
-        df_fpa_final = get_matchup_based_fpa(tuple(active_weeks), league_id)
+        if matchups and isinstance(matchups, list):
+            for m in matchups:
+                players_pts = m.get('players_points', {})
+                for pid, pts in players_pts.items():
+                    p_info = all_players.get(pid, {})
+                    p_team = p_info.get('team')
+                    p_pos = p_info.get('position')
+                    
+                    if p_team in all_nfl_teams and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                        team_pts_collected[p_team][p_pos].append(float(pts))
+
+        fpa_rows = []
+        for t in all_nfl_teams:
+            row = {"NFL Tým (Obrana)": t}
+            for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                lst = team_pts_collected[t][pos]
+                row[pos] = round(sum(lst) / len(lst), 2) if lst else 0.0
+            fpa_rows.append(row)
+
+        df_fpa_final = pd.DataFrame(fpa_rows)
 
         cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
         df_display = df_fpa_final[cols_to_show].copy()
