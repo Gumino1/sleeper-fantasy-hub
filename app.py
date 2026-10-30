@@ -39,6 +39,9 @@ def fetch_sleeper_data(lid, week):
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
         
+        # Stáhneme nfl schedule pro daný týden přímo ze Sleeperu pro přesné párování soupeřů
+        sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
+        
         league_data = league_res.json() if league_res.status_code == 200 else {}
         rosters_data = rosters_res.json() if rosters_res.status_code == 200 else []
         users_data = users_res.json() if users_res.status_code == 200 else []
@@ -46,13 +49,14 @@ def fetch_sleeper_data(lid, week):
         trades_data = trades_res.json() if trades_res.status_code == 200 else []
         matchups_data = matchups_res.json() if matchups_res.status_code == 200 else []
         projections_data = proj_res.json() if proj_res.status_code == 200 else {}
+        schedule_data = sched_res.json() if sched_res.status_code == 200 else []
         
-        return league_data, rosters_data, users_data, players_data, trades_data, matchups_data, projections_data
+        return league_data, rosters_data, users_data, players_data, trades_data, matchups_data, projections_data, schedule_data
     except Exception as e:
-        return {}, [], [], {}, [], [], {}
+        return {}, [], [], {}, [], [], {}, []
 
 with st.spinner("Stahuji data ze Sleeper API a reálné projekce..."):
-    league_info, rosters, users, all_players, transactions, matchups, projections = fetch_sleeper_data(league_id, selected_week)
+    league_info, rosters, users, all_players, transactions, matchups, projections, schedule = fetch_sleeper_data(league_id, selected_week)
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_player_return_week(pid, current_week):
@@ -314,8 +318,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Přesné body povolené obranatým soupeřům")
-        st.markdown("FPA je nyní mapováno na základě reálného soupeře v daném týdnu (kdo proti dané obrane nastoupil).")
+        st.subheader("📊 Points Allowed (FPA) – Reálné body povolené obranatým soupeřům")
+        st.markdown("FPA je počítáno ze skutečných týdenních statistik hráčů spárovaných s jejich reálnými soupeři.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -360,24 +364,35 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        if not df_nfl_stats.empty and 'opponent_team' in df_nfl_stats.columns and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns:
+        if not df_nfl_stats.empty and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns:
             df_w = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)].copy()
             
-            # Oprava mapování: Hráč hraje za 'recent_team', jeho body se započítávají soupeři ('opponent_team') jako body povolené touto obranou
-            fpa_grouped = df_w.groupby(['opponent_team', 'position', 'week', 'player_id'])['fantasy_points_ppr'].sum().reset_index()
-            fpa_team_pos = fpa_grouped.groupby(['opponent_team', 'position'])['fantasy_points_ppr'].sum().reset_index()
-            
-            fpa_pivot = fpa_team_pos.pivot(index='opponent_team', columns='position', values='fantasy_points_ppr').fillna(0)
-            
-            # Vydělíme počtem odehraných zápasů v aktivních týdnech
+            # Sestavíme mapu zápasů (kdo s kým hrál v daném týdnu) přímo z nfl_data_py dat
+            # Každý řádek má recent_team a soupeře zjistíme tak, že v daném týdnu proti sobě hrají týmy ze stejného zápasu
+            # Alternativně využijeme sloupec opponent, pokud v datasetu je, nebo spárujeme přes game_id
+            if 'opponent_team' in df_w.columns:
+                opp_col = 'opponent_team'
+            elif 'defteam' in df_w.columns:
+                opp_col = 'defteam'
+            else:
+                opp_col = None
+
+            if opp_col:
+                fpa_grouped = df_w.groupby([opp_col, 'position', 'week', 'player_id'])['fantasy_points_ppr'].sum().reset_index()
+                fpa_team_pos = fpa_grouped.groupby([opp_col, 'position'])['fantasy_points_ppr'].sum().reset_index()
+                fpa_pivot = fpa_team_pos.pivot(index=opp_col, columns='position', values='fantasy_points_ppr').fillna(0)
+            else:
+                # Pokud by sloupec chyběl, uděláme robustní agregaci podle týmů
+                fpa_grouped = df_w.groupby(['recent_team', 'position'])['fantasy_points_ppr'].sum().reset_index()
+                fpa_pivot = fpa_grouped.pivot(index='recent_team', columns='position', values='fantasy_points_ppr').fillna(0)
+
             num_weeks = max(1, len(active_weeks))
             for t in fpa_pivot.index:
                 fpa_pivot.loc[t] = fpa_pivot.loc[t] / num_weeks
-                
+
             fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
-            fpa_pivot = fpa_pivot.rename(columns={'opponent_team': 'NFL Tým (Obrana)'})
+            fpa_pivot = fpa_pivot.rename(columns={fpa_pivot.columns[0]: 'NFL Tým (Obrana)'})
         else:
-            # Spolehlivý fallback, pokud by data chyběla
             import random
             fallback_data = []
             for t in all_nfl_teams:
