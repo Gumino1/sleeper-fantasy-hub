@@ -11,7 +11,6 @@ st.markdown("NFL Redraft PPR | Reálné Sleeper projekce, filtrování pozic, St
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_nfl_weekly_data():
     try:
-        # Stáhneme data pro všechny odehrané týdny (1 až 18)
         return nfl.import_weekly_data([2026])
     except Exception:
         return pd.DataFrame()
@@ -315,7 +314,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Filtrování podle pozic a týdnů")
+        st.subheader("📊 Points Allowed (FPA) – Barevně zvýrazněný přehled defenziv")
+        st.markdown("Tabulka ukazuje průměrné fantasy body povolené jednotlivým pozicím. Barvy značí kvartily (1. nejhorší obrany/nejvíce bodů = zelená, 32. nejlepší obrana/nejméně bodů = červená).")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -337,24 +337,21 @@ else:
 
         st.markdown("---")
         
-        # 2. Filtrování týdnů (včetně rychlé volby posledních 3 týdnů)
+        # 2. Filtrování týdnů
         st.markdown("**Vyber týdny pro výpočet průměrů FPA:**")
-        
-        # Určíme maximální dostupný týden (podle zvoleného týdne v postranním panelu)
         max_w = int(selected_week)
         available_weeks = list(range(1, max_w + 1))
         
         col_w1, col_w2 = st.columns([2, 3])
         with col_w1:
-            quick_option = st.selectbox("Rychlá volba období:", ["Všechny odehrané", "Poslední 3 týdny", "Vlastní výběr týdnů"])
+            quick_option = st.selectbox("Rychlá volba období:", ["Všechny odehrané", "Poslední 3 týdny", "Vlastní výběr týdnů"], key="fpa_weeks_opt")
         
         if quick_option == "Všechny odehrané":
             active_weeks = available_weeks
         elif quick_option == "Poslední 3 týdny":
             active_weeks = available_weeks[-3:] if len(available_weeks) >= 3 else available_weeks
         else:
-            # Vlastní výběr přes multiselect
-            active_weeks = st.multiselect("Zaškrtni konkrétní týdny:", available_weeks, default=available_weeks)
+            active_weeks = st.multiselect("Zaškrtni konkrétní týdny:", available_weeks, default=available_weeks, key="fpa_custom_w")
 
         all_nfl_teams = [
             "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", 
@@ -364,21 +361,15 @@ else:
         ]
 
         if not df_nfl_stats.empty and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns and 'fantasy_points_ppr' in df_nfl_stats.columns:
-            # Filtrování datasetu podle zvolených týdnů
             df_filtered_weeks = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)]
-            
             fpa_grouped = df_filtered_weeks.groupby(['recent_team', 'position'])['fantasy_points_ppr'].mean().reset_index()
             fpa_pivot = fpa_grouped.pivot(index='recent_team', columns='position', values='fantasy_points_ppr').fillna(0).round(2)
-            
             fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).reset_index()
             fpa_pivot = fpa_pivot.rename(columns={'recent_team': 'NFL Tým (Obrana)'})
-            
-            cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
-            st.dataframe(fpa_pivot[cols_to_show], use_container_width=True, hide_index=True, height=600)
         else:
-            # Fallback ukázková tabulka
-            fallback_data = []
+            # Fallback data pro případ, že nfl_data_py nedodá data
             import random
+            fallback_data = []
             for t in all_nfl_teams:
                 fallback_data.append({
                     "NFL Tým (Obrana)": t,
@@ -389,6 +380,40 @@ else:
                     "K": round(random.uniform(6.0, 10.0), 2),
                     "DEF": round(random.uniform(4.0, 12.0), 2),
                 })
-            df_fallback = pd.DataFrame(fallback_data)
-            cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fallback.columns]
-            st.dataframe(df_fallback[cols_to_show], use_container_width=True, hide_index=True, height=600)
+            fpa_pivot = pd.DataFrame(fallback_data)
+
+        # Filtrování sloupců podle zvolených pozic
+        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
+        df_display = fpa_pivot[cols_to_show].copy()
+
+        # Funkce pro barevné podbarvení podle pořadí (1-8 zelená, 9-16 žlutá, 17-24 oranžová, 25-32 červená)
+        def color_fpa_cells(val, col_name, df_full):
+            if col_name == 'NFL Tým (Obrana)':
+                return ''
+            if col_name not in df_full.columns:
+                return ''
+            
+            # Seřadíme hodnoty ve sloupci sestupně (nejvíc povolených bodů = 1. místo / nejzelenější)
+            sorted_vals = df_full[col_name].sort_values(ascending=False).values
+            try:
+                # Najdeme pozici hodnoty v seřazeném poli (0-indexed, takže 0-7 je 1-8. místo)
+                rank_idx = list(sorted_vals).index(val)
+                
+                if rank_idx < 8:
+                    return 'background-color: rgba(46, 204, 113, 0.35); color: black;' # 1-8: Zelená
+                elif rank_idx < 16:
+                    return 'background-color: rgba(241, 196, 15, 0.35); color: black;' # 9-16: Žlutá
+                elif rank_idx < 24:
+                    return 'background-color: rgba(230, 126, 34, 0.35); color: black;' # 17-24: Oranžová
+                else:
+                    return 'background-color: rgba(231, 76, 60, 0.35); color: black;' # 25-32: Červená
+            except ValueError:
+                return ''
+
+        # Aplikace stylingu přes Pandas Styler (vše zaokrouhleno na dvě desetinná místa)
+        styled_df = df_display.style.format({c: "{:.2f}" for c in selected_fpa_cols if c in df_display.columns})
+        for c in selected_fpa_cols:
+            if c in df_display.columns:
+                styled_df = styled_df.applymap(lambda v, cn=c, df=df_display: color_fpa_cells(v, cn, df), subset=[c])
+
+        st.dataframe(styled_df, use_container_width=True, hide_index=True, height=650)
