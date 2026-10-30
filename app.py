@@ -367,7 +367,6 @@ else:
             fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).reset_index()
             fpa_pivot = fpa_pivot.rename(columns={'recent_team': 'NFL Tým (Obrana)'})
         else:
-            # Fallback data pro případ, že nfl_data_py nedodá data
             import random
             fallback_data = []
             for t in all_nfl_teams:
@@ -382,21 +381,17 @@ else:
                 })
             fpa_pivot = pd.DataFrame(fallback_data)
 
-        # Filtrování sloupců podle zvolených pozic
         cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
         df_display = fpa_pivot[cols_to_show].copy()
 
-        # Funkce pro barevné podbarvení podle pořadí (1-8 zelená, 9-16 žlutá, 17-24 oranžová, 25-32 červená)
         def color_fpa_cells(val, col_name, df_full):
             if col_name == 'NFL Tým (Obrana)':
                 return ''
             if col_name not in df_full.columns:
                 return ''
             
-            # Seřadíme hodnoty ve sloupci sestupně (nejvíc povolených bodů = 1. místo / nejzelenější)
             sorted_vals = df_full[col_name].sort_values(ascending=False).values
             try:
-                # Najdeme pozici hodnoty v seřazeném poli (0-indexed, takže 0-7 je 1-8. místo)
                 rank_idx = list(sorted_vals).index(val)
                 
                 if rank_idx < 8:
@@ -410,10 +405,10 @@ else:
             except ValueError:
                 return ''
 
-        # Aplikace stylingu přes Pandas Styler (vše zaokrouhleno na dvě desetinná místa)
         styled_df = df_display.style.format({c: "{:.2f}" for c in selected_fpa_cols if c in df_display.columns})
         for c in selected_fpa_cols:
             if c in df_display.columns:
-                styled_df = styled_df.applymap(lambda v, cn=c, df=df_display: color_fpa_cells(v, cn, df), subset=[c])
+                # Opraveno z applymap na map kvůli kompatibilitě s novým Pandasem
+                styled_df = styled_df.map(lambda v, cn=c, df=df_display: color_fpa_cells(v, cn, df), subset=[c])
 
         st.dataframe(styled_df, use_container_width=True, hide_index=True, height=650)
