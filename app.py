@@ -261,7 +261,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -360,10 +360,8 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        # Stáhneme oficiální stats ze Sleeper API pro vybrané týdny a posčítáme je podle soupeřů z NFL schedule
         @st.cache_data(ttl=1800, show_spinner=False)
         def get_sleeper_fpa_matrix(weeks_tuple):
-            # Zjistíme rozpis zápasů NFL pro dané týdny přes Sleeper API
             team_allowed_points = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
             
             for w in weeks_tuple:
@@ -375,7 +373,6 @@ else:
                         schedule_data = sched_res.json()
                         stats_data = stats_res.json()
                         
-                        # Vytvoříme mapu zápasů: team -> opponent v tomto týdnu
                         team_opp = {}
                         for game in schedule_data:
                             t1 = game.get('home_team')
@@ -384,7 +381,6 @@ else:
                                 team_opp[t1] = t2
                                 team_opp[t2] = t1
                         
-                        # Projdeme hráče a jejich body v daném týdnu
                         for pid, pstats in stats_data.items():
                             p_info = all_players.get(pid, {})
                             p_team = p_info.get('team')
@@ -392,15 +388,12 @@ else:
                             
                             if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
                                 pts = float(pstats.get('pts_ppr', pstats.get('pts_standard', 0.0)))
-                                
-                                # Soupeř daného týmu v tomto týdnu
                                 opp_team = team_opp.get(p_team)
                                 if opp_team:
                                     team_allowed_points[opp_team][p_pos].append(pts)
                 except Exception:
                     pass
             
-            # Sestavení průměrů
             matrix_rows = []
             for t in all_nfl_teams:
                 row = {"NFL Tým (Obrana)": t}
