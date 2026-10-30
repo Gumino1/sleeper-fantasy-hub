@@ -263,7 +263,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -339,7 +339,7 @@ else:
 
         st.markdown("---")
         
-        # 2. Filtrování týdnů (zde jsou plnohodnotná tlačítka zpět)
+        # 2. Filtrování týdnů
         st.markdown("**Vyber týdny pro výpočet FPA:**")
         max_w = int(selected_week)
         available_weeks = list(range(1, max_w + 1))
@@ -369,7 +369,6 @@ else:
             fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
             fpa_pivot = fpa_pivot.rename(columns={'recent_team': 'NFL Tým (Obrana)'})
         else:
-            # Fallback hodnoty reflektující reálné průměry ligy, pokud by dataset nfl_data_py chyběl
             fallback_rows = []
             for t in all_nfl_teams:
                 fallback_rows.append({
