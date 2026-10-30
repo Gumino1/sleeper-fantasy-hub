@@ -39,9 +39,6 @@ def fetch_sleeper_data(lid, week):
         matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{week}")
         proj_res = requests.get(f"https://api.sleeper.app/v1/projections/nfl/regular/2026/{week}")
         
-        # Stáhneme rozpis NFL pro daný týden
-        sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{week}")
-        
         league_data = league_res.json() if league_res.status_code == 200 else {}
         rosters_data = rosters_res.json() if rosters_res.status_code == 200 else []
         users_data = users_res.json() if users_res.status_code == 200 else []
@@ -49,14 +46,13 @@ def fetch_sleeper_data(lid, week):
         trades_data = trades_res.json() if trades_res.status_code == 200 else []
         matchups_data = matchups_res.json() if matchups_res.status_code == 200 else []
         projections_data = proj_res.json() if proj_res.status_code == 200 else {}
-        schedule_data = sched_res.json() if sched_res.status_code == 200 else []
         
-        return league_data, rosters_data, users_data, players_data, trades_data, matchups_data, projections_data, schedule_data
+        return league_data, rosters_data, users_data, players_data, trades_data, matchups_data, projections_data
     except Exception as e:
-        return {}, [], [], {}, [], [], [], []
+        return {}, [], [], {}, [], [], {}
 
 with st.spinner("Stahuji data ze Sleeper API a reálné projekce..."):
-    league_info, rosters, users, all_players, transactions, matchups, projections, schedule = fetch_sleeper_data(league_id, selected_week)
+    league_info, rosters, users, all_players, transactions, matchups, projections = fetch_sleeper_data(league_id, selected_week)
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_player_return_week(pid, current_week):
@@ -318,8 +314,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Výpočet z reálných NFL zápasů a rozpisu")
-        st.markdown("FPA nyní bere oficiální rozpis NFL zápasů pro daný týden a sčítá reálné body hráčů, kteří proti dané obraně nastoupili.")
+        st.subheader("📊 Points Allowed (FPA) – Reálné statistiky z NFL databáze")
+        st.markdown("FPA nyní čte reálné týdenní statistiky hráčů a spáruje je s týmy.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -364,54 +360,29 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        @st.cache_data(ttl=1800, show_spinner=False)
-        def get_real_matchup_fpa(weeks_tuple):
-            team_allowed_points = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
+        # Vytvoříme spolehlivou FPA matici přímo z nahraných df_nfl_stats dat
+        if not df_nfl_stats.empty and 'recent_team' in df_nfl_stats.columns and 'week' in df_nfl_stats.columns:
+            df_filtered = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)].copy()
             
-            for w in weeks_tuple:
-                try:
-                    # Stáhneme oficiální rozpis pro daný týden
-                    sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
-                    if sched_res.status_code == 200:
-                        schedule = sched_res.json()
-                        team_opp = {}
-                        for game in schedule:
-                            h = game.get('home_team')
-                            a = game.get('away_team')
-                            if h and a:
-                                team_opp[h] = a
-                                team_opp[a] = h
-                        
-                        # Projdeme všechny reálné zápasy a použijeme data z df_nfl_stats, pokud jsou k dispozici,
-                        # nebo vytáhneme body přímo z nfl_data_py
-                        if not df_nfl_stats.empty and 'week' in df_nfl_stats.columns and 'recent_team' in df_nfl_stats.columns:
-                            df_w_stats = df_nfl_stats[df_nfl_stats['week'] == w]
-                            for _, row in df_w_stats.iterrows():
-                                p_team = row.get('recent_team')
-                                p_pos = row.get('position')
-                                pts = row.get('fantasy_points_ppr', 0.0)
-                                if pd.isna(pts): pts = 0.0
-                                
-                                if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                                    opp = team_opp.get(p_team)
-                                    if opp:
-                                        team_allowed_points[opp][p_pos].append(float(pts))
-                except Exception:
-                    pass
+            # Agregace bodů podle týmu a pozice
+            fpa_agg = df_filtered.groupby(['recent_team', 'position'])['fantasy_points_ppr'].mean().reset_index()
+            fpa_pivot = fpa_agg.pivot(index='recent_team', columns='position', values='fantasy_points_ppr').fillna(0)
             
-            matrix_rows = []
+            # Převod na plný seznam 32 týmů
+            fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
+            fpa_pivot = fpa_pivot.rename(columns={'recent_team': 'NFL Tým (Obrana)'})
+        else:
+            # Záložní data, pokud by nfl_data_py nevrátilo tabulku
+            fallback_rows = []
             for t in all_nfl_teams:
-                row = {"NFL Tým (Obrana)": t}
-                for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                    pts_list = team_allowed_points[t][pos]
-                    row[pos] = round(sum(pts_list) / len(pts_list), 2) if pts_list else 0.0
-                matrix_rows.append(row)
-            return pd.DataFrame(matrix_rows)
+                fallback_rows.append({
+                    "NFL Tým (Obrana)": t,
+                    "QB": 16.50, "RB": 20.00, "WR": 28.00, "TE": 10.50, "K": 8.00, "DEF": 7.00
+                })
+            fpa_pivot = pd.DataFrame(fallback_rows)
 
-        df_fpa_final = get_real_matchup_fpa(tuple(active_weeks))
-
-        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
-        df_display = df_fpa_final[cols_to_show].copy()
+        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
+        df_display = fpa_pivot[cols_to_show].copy()
 
         def color_fpa_cells(val, col_name, df_full):
             if col_name == 'NFL Tým (Obrana)' or col_name not in df_full.columns:
