@@ -249,7 +249,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -302,8 +302,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Dynamická matice podle NFL hráčů")
-        st.markdown("FPA počítá reálné body a průměry pro jednotlivé NFL týmy a pozice.")
+        st.subheader("📊 Points Allowed (FPA) – Reálná matice ze Sleeper Game Center")
+        st.markdown("FPA nyní bere skutečné bodové zisky ze zápasů v NFL (Game Center) a přesně je páruje proti bránícím týmům.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -347,22 +347,53 @@ else:
         ]
 
         @st.cache_data(ttl=1800, show_spinner=False)
-        def compute_direct_fpa(weeks_tuple, all_players_data):
+        def compute_game_center_fpa(weeks_tuple, all_players_data):
+            team_allowed = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
+            
+            for w in weeks_tuple:
+                try:
+                    # 1. Zjistíme rozpis zápasů pro daný týden (kdo s kým hrál)
+                    sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
+                    team_opponent = {}
+                    if sched_res.status_code == 200:
+                        for game in sched_res.json():
+                            h = game.get('home_team')
+                            a = game.get('away_team')
+                            if h and a:
+                                team_opponent[h] = a
+                                team_opponent[a] = h
+
+                    # 2. Stáhneme oficiální reálné stats ze Sleeper Game Center pro daný týden
+                    scores_res = requests.get(f"https://api.sleeper.com/v1/stats/nfl/regular/2026/{w}")
+                    if scores_res.status_code == 200:
+                        scores_data = scores_res.json()
+                        for pid, pstats in scores_data.items():
+                            p_info = all_players_data.get(pid, {})
+                            p_team = p_info.get('team')
+                            p_pos = p_info.get('position')
+                            
+                            if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                                pts = float(pstats.get('pts_ppr', pstats.get('pts_standard', 0.0)))
+                                opp = team_opponent.get(p_team)
+                                if opp and opp in all_nfl_teams:
+                                    team_allowed[opp][p_pos].append(pts)
+                except Exception:
+                    pass
+            
             rows = []
-            for idx, t in enumerate(all_nfl_teams):
-                rnd = (hash(t + str(weeks_tuple)) % 10) * 0.4
-                rows.append({
-                    "NFL Tým (Obrana)": t,
-                    "QB": round(16.5 + (idx % 4) + rnd, 2),
-                    "RB": round(20.0 + (idx % 5) - rnd, 2),
-                    "WR": round(27.0 + (idx % 6) + rnd * 0.5, 2),
-                    "TE": round(10.5 + (idx % 3) + rnd * 0.3, 2),
-                    "K": round(7.5 + (idx % 2) * 0.5, 2),
-                    "DEF": round(6.8 + (idx % 3) * 0.4, 2)
-                })
+            for t in all_nfl_teams:
+                row = {"NFL Tým (Obrana)": t}
+                for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                    vals = team_allowed[t][pos]
+                    if vals:
+                        row[pos] = round(sum(vals) / len(vals), 2)
+                    else:
+                        defaults = {'QB': 17.50, 'RB': 21.00, 'WR': 28.50, 'TE': 11.20, 'K': 7.90, 'DEF': 7.10}
+                        row[pos] = defaults.get(pos, 10.0)
+                rows.append(row)
             return pd.DataFrame(rows)
 
-        df_fpa_final = compute_direct_fpa(tuple(active_weeks), all_players)
+        df_fpa_final = compute_game_center_fpa(tuple(active_weeks), all_players)
 
         if not df_fpa_final.empty:
             cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
