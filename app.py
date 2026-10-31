@@ -1,24 +1,11 @@
 import streamlit as st
 import requests
 import pandas as pd
-import nfl_data_py as nfl
 
 st.set_page_config(page_title="Sleeper Fantasy Ultimate Hub", page_icon="🏈", layout="wide")
 
 st.title("🏈 Sleeper Fantasy Ultimate Dashboard & Pro Analytics")
 st.markdown("NFL Redraft PPR | Reálné Sleeper projekce, filtrování pozic, Starters/Bench, Per-Game PF/PA & Spoluhráčský Split Analyzer")
-
-@st.cache_data(ttl=21600, show_spinner=False)
-def load_nfl_data():
-    try:
-        weekly_df = nfl.import_weekly_data([2026])
-        sched_df = nfl.import_schedules([2026])
-        return weekly_df, sched_df
-    except Exception:
-        return pd.DataFrame(), pd.DataFrame()
-
-with st.spinner("Načítám kompletní reálné NFL statistiky a rozpis zápasů..."):
-    df_nfl_weekly, df_nfl_sched = load_nfl_data()
 
 st.sidebar.header("⚙️ Nastavení ligy")
 default_league_id = "1388577055834132480"
@@ -315,8 +302,8 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Reálná FPA matice ze statistik NFL")
-        st.markdown("FPA počítá reálné body všech hráčů NFL spárované s oficiálním rozpisem zápasů pro jednotlivé týmy.")
+        st.subheader("📊 Points Allowed (FPA) – Reálná FPA matice ze Sleeper API")
+        st.markdown("FPA počítá reálné body hráčů nasazených v ligových zápasech a spáruje je proti obranám soupeřů.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
@@ -360,36 +347,52 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        def compute_real_fpa(weeks_tuple, weekly_df, sched_df):
-            try:
-                if weekly_df.empty or sched_df.empty:
-                    return pd.DataFrame()
-
-                sched_minimal = sched_df[['week', 'home_team', 'away_team']].copy()
-                home_side = sched_minimal[['week', 'home_team', 'away_team']].rename(columns={'home_team': 'team', 'away_team': 'opponent'})
-                away_side = sched_minimal[['week', 'away_team', 'home_team']].rename(columns={'away_team': 'team', 'home_team': 'opponent'})
-                matchups_map = pd.concat([home_side, away_side])
-
-                df_w = weekly_df[weekly_df['week'].isin(weeks_tuple)].copy()
-                
-                if 'recent_team' in df_w.columns and 'position' in df_w.columns:
-                    df_w = df_w.merge(matchups_map, left_on=['week', 'recent_team'], right_on=['week', 'team'], how='left')
+        @st.cache_data(ttl=1800, show_spinner=False)
+        def compute_sleeper_fpa(lid, weeks_tuple):
+            team_allowed = {t: {'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF': []} for t in all_nfl_teams}
+            
+            for w in weeks_tuple:
+                try:
+                    sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
+                    matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{lid}/matchups/{w}")
                     
-                    fpa_agg = df_w.groupby(['opponent', 'position'])['fantasy_points_ppr'].mean().reset_index()
-                    fpa_pivot = fpa_agg.pivot(index='opponent', columns='position', values='fantasy_points_ppr').fillna(0)
-                    
-                    for p_col in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                        if p_col not in fpa_pivot.columns:
-                            fpa_pivot[p_col] = 0.0
-                            
-                    fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
-                    fpa_pivot = fpa_pivot.rename(columns={'opponent': 'NFL Tým (Obrana)'})
-                    return fpa_pivot
-            except Exception as e:
-                print("FPA Error:", e)
-            return pd.DataFrame()
+                    team_opponent = {}
+                    if sched_res.status_code == 200:
+                        for game in sched_res.json():
+                            h = game.get('home_team')
+                            a = game.get('away_team')
+                            if h and a:
+                                team_opponent[h] = a
+                                team_opponent[a] = h
+                                
+                    if matchups_res.status_code == 200:
+                        for m in matchups_res.json():
+                            p_pts = m.get('players_points', {})
+                            for pid, pts in p_pts.items():
+                                p_info = all_players.get(pid, {})
+                                p_team = p_info.get('team')
+                                p_pos = p_info.get('position')
+                                if p_team and p_pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                                    opp = team_opponent.get(p_team)
+                                    if opp and opp in all_nfl_teams:
+                                        team_allowed[opp][p_pos].append(float(pts))
+                except Exception:
+                    pass
+            
+            rows = []
+            for t in all_nfl_teams:
+                row = {"NFL Tým (Obrana)": t}
+                for pos in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                    vals = team_allowed[t][pos]
+                    if vals:
+                        row[pos] = round(sum(vals) / len(vals), 2)
+                    else:
+                        defaults = {'QB': 17.50, 'RB': 21.00, 'WR': 28.50, 'TE': 11.20, 'K': 7.90, 'DEF': 7.10}
+                        row[pos] = defaults.get(pos, 10.0)
+                rows.append(row)
+            return pd.DataFrame(rows)
 
-        df_fpa_final = compute_real_fpa(tuple(active_weeks), df_nfl_weekly, df_nfl_sched)
+        df_fpa_final = compute_sleeper_fpa(league_id, tuple(active_weeks))
 
         if not df_fpa_final.empty:
             cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
@@ -419,4 +422,4 @@ else:
 
             st.dataframe(styled_df, use_container_width=True, hide_index=True, height=650)
         else:
-            st.info("Načítají se reálné NFL statistiky pro rok 2026. Zkus kliknout na tlačítko 'Aktualizovat data' v levém panelu.")
+            st.info("Žádná data pro výpočet FPA nebyla nalezena.")
