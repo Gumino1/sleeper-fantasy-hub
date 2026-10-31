@@ -249,7 +249,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -352,7 +352,6 @@ else:
             
             for w in weeks_tuple:
                 try:
-                    # 1. Zjistíme rozpis zápasů pro daný týden (kdo s kým hrál)
                     sched_res = requests.get(f"https://api.sleeper.app/v1/schedule/nfl/regular/2026/{w}")
                     team_opponent = {}
                     if sched_res.status_code == 200:
@@ -363,7 +362,6 @@ else:
                                 team_opponent[h] = a
                                 team_opponent[a] = h
 
-                    # 2. Stáhneme oficiální reálné stats ze Sleeper Game Center pro daný týden
                     scores_res = requests.get(f"https://api.sleeper.com/v1/stats/nfl/regular/2026/{w}")
                     if scores_res.status_code == 200:
                         scores_data = scores_res.json()
