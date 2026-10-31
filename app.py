@@ -262,7 +262,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
