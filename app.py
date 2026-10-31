@@ -337,7 +337,7 @@ else:
         elif quick_option == "Poslední 3 týdny":
             active_weeks = available_weeks[-3:] if len(available_weeks) >= 3 else available_weeks
         else:
-            active_weeks = st.multiselect("Zaškrtni konkrétní týdny:", available_weeks, default=active_weeks, key="fpa_custom_w")
+            active_weeks = st.multiselect("Zaškrtni konkrétní týdny:", available_weeks, default=available_weeks, key="fpa_custom_w")
 
         all_nfl_teams = [
             "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", 
