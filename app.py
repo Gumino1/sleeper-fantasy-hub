@@ -9,17 +9,16 @@ st.title("🏈 Sleeper Fantasy Ultimate Dashboard & Pro Analytics")
 st.markdown("NFL Redraft PPR | Reálné Sleeper projekce, filtrování pozic, Starters/Bench, Per-Game PF/PA & Spoluhráčský Split Analyzer")
 
 @st.cache_data(ttl=21600, show_spinner=False)
-def load_nfl_weekly_data():
+def load_nfl_data():
     try:
-        df = nfl.import_weekly_data([2026])
-        if not df.empty:
-            return df
+        weekly_df = nfl.import_weekly_data([2026])
+        sched_df = nfl.import_schedules([2026])
+        return weekly_df, sched_df
     except Exception:
-        pass
-    return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
-with st.spinner("Načítám kompletní reálné NFL statistiky a body hráčů..."):
-    df_nfl_stats = load_nfl_weekly_data()
+with st.spinner("Načítám kompletní reálné NFL statistiky a rozpis zápasů..."):
+    df_nfl_weekly, df_nfl_sched = load_nfl_data()
 
 st.sidebar.header("⚙️ Nastavení ligy")
 default_league_id = "1388577055834132480"
@@ -45,7 +44,7 @@ def fetch_sleeper_data(lid, week):
         rosters_data = rosters_res.json() if rosters_res.status_code == 200 else []
         users_data = users_res.json() if users_res.status_code == 200 else []
         players_data = players_res.json() if players_res.status_code == 200 else {}
-        trades_data = trades_res.json() if trades_res.status_code == 200 else {}
+        trades_data = trades_res.json() if trades_res.status_code == 200 else []
         matchups_data = matchups_res.json() if matchups_res.status_code == 200 else []
         projections_data = proj_res.json() if proj_res.status_code == 200 else {}
         
@@ -263,7 +262,7 @@ else:
 
     with tab6:
         st.subheader("🔀 Trejdy")
-        trades = [t for t in transactions if t.get('type') == 'trade'] if isinstance(transactions, list) else []
+        trades = [t for t in transactions if t.get('type'] == 'trade'] if isinstance(transactions, list) else []
         st.write(f"Počet trejdů ve weeku {selected_week}: {len(trades)}")
 
     with tab7:
@@ -316,18 +315,18 @@ else:
             st.info("Pro tento tým nebyli nalezeni žádní hráči.")
 
     with tab8:
-        st.subheader("📊 Points Allowed (FPA) – Reálné body všech hráčů proti obranám")
-        st.markdown("FPA počítá skutečné body odehrané všemi hráči NFL v daných týdnech[cite: 1] proti jednotlivým soupeřícím týmům.")
+        st.subheader("📊 Points Allowed (FPA) – Reálná FPA matice ze statistik NFL")
+        st.markdown("FPA počítá reálné body všech hráčů NFL spárované s oficiálním rozpisem zápasů pro jednotlivé týmy.")
         
         # 1. Filtrování pozic
         st.markdown("**Vyber pozice k zobrazení:**")
         c1, c2, c3, c4, c5, c6 = st.columns(6)
-        with c1: show_qb = st.checkbox("QB", value=True)
-        with c2: show_rb = st.checkbox("RB", value=True)
-        with c3: show_wr = st.checkbox("WR", value=True)
-        with c4: show_te = st.checkbox("TE", value=True)
-        with c5: show_k = st.checkbox("K", value=True)
-        with c6: show_def = st.checkbox("DEF", value=True)
+        with c1: show_qb = st.checkbox("QB", value=True, key="fpa_qb")
+        with c2: show_rb = st.checkbox("RB", value=True, key="fpa_rb")
+        with c3: show_wr = st.checkbox("WR", value=True, key="fpa_wr")
+        with c4: show_te = st.checkbox("TE", value=True, key="fpa_te")
+        with c5: show_k = st.checkbox("K", value=True, key="fpa_k")
+        with c6: show_def = st.checkbox("DEF", value=True, key="fpa_def")
         
         selected_fpa_cols = []
         if show_qb: selected_fpa_cols.append('QB')
@@ -340,7 +339,6 @@ else:
         st.markdown("---")
         
         # 2. Filtrování týdnů
-        st.markdown("**Vyber týdny pro výpočet FPA:**")
         max_w = int(selected_week)
         available_weeks = list(range(1, max_w + 1))
         
@@ -362,53 +360,63 @@ else:
             "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"
         ]
 
-        if not df_nfl_stats.empty and 'opponent_team' in df_nfl_stats.columns and 'position' in df_nfl_stats.columns:
-            # Filtrujeme globální data pro vybrané týdny
-            df_fpa_source = df_nfl_stats[df_nfl_stats['week'].isin(active_weeks)].copy()
-            
-            # Seskupení podle soupeře (opponent_team) a pozice hráče, spočítáme průměrné body
-            fpa_agg = df_fpa_source.groupby(['opponent_team', 'position'])['fantasy_points_ppr'].mean().reset_index()
-            fpa_pivot = fpa_agg.pivot(index='opponent_team', columns='position', values='fantasy_points_ppr').fillna(0)
-            
-            for p_col in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
-                if p_col not in fpa_pivot.columns:
-                    fpa_pivot[p_col] = 0.0
-                    
-            fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
-            fpa_pivot = fpa_pivot.rename(columns={'opponent_team': 'NFL Tým (Obrana)'})
-        else:
-            # Záložní matice, pokud by dataframe chyběl
-            fallback_rows = []
-            for t in all_nfl_teams:
-                fallback_rows.append({
-                    "NFL Tým (Obrana)": t,
-                    "QB": 17.20, "RB": 21.50, "WR": 29.10, "TE": 11.80, "K": 8.20, "DEF": 7.40
-                })
-            fpa_pivot = pd.DataFrame(fallback_rows)
-
-        cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in fpa_pivot.columns]
-        df_display = fpa_pivot[cols_to_show].copy()
-
-        def color_fpa_cells(val, col_name, df_full):
-            if col_name == 'NFL Tým (Obrana)' or col_name not in df_full.columns:
-                return ''
-            sorted_vals = df_full[col_name].sort_values(ascending=False).values
+        def compute_real_fpa(weeks_tuple, weekly_df, sched_df):
             try:
-                rank_idx = list(sorted_vals).index(val)
-                if rank_idx < 8:
-                    return 'background-color: rgba(46, 204, 113, 0.35); color: black;'
-                elif rank_idx < 16:
-                    return 'background-color: rgba(241, 196, 15, 0.35); color: black;'
-                elif rank_idx < 24:
-                    return 'background-color: rgba(230, 126, 34, 0.35); color: black;'
-                else:
-                    return 'background-color: rgba(231, 76, 60, 0.35); color: black;'
-            except ValueError:
-                return ''
+                if weekly_df.empty or sched_df.empty:
+                    return pd.DataFrame()
 
-        styled_df = df_display.style.format({c: "{:.2f}" for c in selected_fpa_cols if c in df_display.columns})
-        for c in selected_fpa_cols:
-            if c in df_display.columns:
-                styled_df = styled_df.map(lambda v, cn=c, df=df_display: color_fpa_cells(v, cn, df), subset=[c])
+                sched_minimal = sched_df[['week', 'home_team', 'away_team']].copy()
+                home_side = sched_minimal[['week', 'home_team', 'away_team']].rename(columns={'home_team': 'team', 'away_team': 'opponent'})
+                away_side = sched_minimal[['week', 'away_team', 'home_team']].rename(columns={'away_team': 'team', 'home_team': 'opponent'})
+                matchups_map = pd.concat([home_side, away_side])
 
-        st.dataframe(styled_df, use_container_width=True, hide_index=True, height=650)
+                df_w = weekly_df[weekly_df['week'].isin(weeks_tuple)].copy()
+                
+                if 'recent_team' in df_w.columns and 'position' in df_w.columns:
+                    df_w = df_w.merge(matchups_map, left_on=['week', 'recent_team'], right_on=['week', 'team'], how='left')
+                    
+                    fpa_agg = df_w.groupby(['opponent', 'position'])['fantasy_points_ppr'].mean().reset_index()
+                    fpa_pivot = fpa_agg.pivot(index='opponent', columns='position', values='fantasy_points_ppr').fillna(0)
+                    
+                    for p_col in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']:
+                        if p_col not in fpa_pivot.columns:
+                            fpa_pivot[p_col] = 0.0
+                            
+                    fpa_pivot = fpa_pivot.reindex(all_nfl_teams, fill_value=0.0).round(2).reset_index()
+                    fpa_pivot = fpa_pivot.rename(columns={'opponent': 'NFL Tým (Obrana)'})
+                    return fpa_pivot
+            except Exception as e:
+                print("FPA Error:", e)
+            return pd.DataFrame()
+
+        df_fpa_final = compute_real_fpa(tuple(active_weeks), df_nfl_weekly, df_nfl_sched)
+
+        if not df_fpa_final.empty:
+            cols_to_show = ['NFL Tým (Obrana)'] + [c for c in selected_fpa_cols if c in df_fpa_final.columns]
+            df_display = df_fpa_final[cols_to_show].copy()
+
+            def color_fpa_cells(val, col_name, df_full):
+                if col_name == 'NFL Tým (Obrana)' or col_name not in df_full.columns:
+                    return ''
+                sorted_vals = df_full[col_name].sort_values(ascending=False).values
+                try:
+                    rank_idx = list(sorted_vals).index(val)
+                    if rank_idx < 8:
+                        return 'background-color: rgba(46, 204, 113, 0.35); color: black;'
+                    elif rank_idx < 16:
+                        return 'background-color: rgba(241, 196, 15, 0.35); color: black;'
+                    elif rank_idx < 24:
+                        return 'background-color: rgba(230, 126, 34, 0.35); color: black;'
+                    else:
+                        return 'background-color: rgba(231, 76, 60, 0.35); color: black;'
+                except ValueError:
+                    return ''
+
+            styled_df = df_display.style.format({c: "{:.2f}" for c in selected_fpa_cols if c in df_display.columns})
+            for c in selected_fpa_cols:
+                if c in df_display.columns:
+                    styled_df = styled_df.map(lambda v, cn=c, df=df_display: color_fpa_cells(v, cn, df), subset=[c])
+
+            st.dataframe(styled_df, use_container_width=True, hide_index=True, height=650)
+        else:
+            st.info("Načítají se reálné NFL statistiky pro rok 2026. Zkus kliknout na tlačítko 'Aktualizovat data' v levém panelu.")
